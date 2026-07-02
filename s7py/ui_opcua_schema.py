@@ -50,7 +50,8 @@ class OpcUaSchemaMixin:
         dialog.title("OPC UA — Variablen manuell")
         dialog.transient(self)
         dialog.grab_set()
-        dialog.minsize(760, 420)
+        dialog.geometry("980x520")
+        dialog.minsize(900, 420)
 
         outer = ttk.Frame(dialog, padding=12)
         outer.pack(fill="both", expand=True)
@@ -67,7 +68,7 @@ class OpcUaSchemaMixin:
                 "Typ, NodeId und SQLite-Speicherung frei festlegen — unabhaengig "
                 "von Standard oder TIA-Import. Gespeichert wird in s7py_db.json."
             ),
-            wraplength=720,
+            wraplength=940,
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
 
         toolbar = ttk.Frame(outer)
@@ -95,7 +96,12 @@ class OpcUaSchemaMixin:
             "<Configure>",
             lambda _e: canvas.configure(scrollregion=canvas.bbox("all")),
         )
-        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+
+        def _sync_scroll_width(event: tk.Event) -> None:
+            canvas.itemconfigure(canvas_window, width=event.width)
+
+        canvas.bind("<Configure>", _sync_scroll_width)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -165,7 +171,7 @@ class OpcUaSchemaMixin:
                 width=8,
                 state="readonly",
             ).grid(row=0, column=1, sticky="w", padx=(0, 8))
-            ttk.Entry(frame, textvariable=node_var, width=42).grid(
+            ttk.Entry(frame, textvariable=node_var).grid(
                 row=0, column=2, sticky="ew", padx=(0, 4)
             )
             frame.columnconfigure(2, weight=1)

@@ -25,6 +25,7 @@ hiddenimports = [
     "s7py.backends.snap7",
     "s7py.backends.opcua",
     "s7py.opcua_values",
+    "s7py.opcua_import",
     "s7py.opcua_browse",
     "s7py.ui_opcua_browse",
     "s7py.ui_opcua_schema",

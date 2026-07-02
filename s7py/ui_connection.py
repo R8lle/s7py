@@ -11,8 +11,8 @@ from sqlite3 import Error
 from tkinter import messagebox
 
 from s7py.ui_base import S7PyAppProtocol
+from s7py.opcua_import import OpcUaError, format_opcua_connect_error
 from s7py.backends import create_backend
-from s7py.backends.opcua import OpcUaNotReadyError
 from s7py.constants import (
     AUTO_RECONNECT_BASE_DELAY_S,
     AUTO_RECONNECT_MAX_DELAY_S,
@@ -151,10 +151,13 @@ class ConnectionMixin:
                     self.plc_backend.connect("", endpoint_url=target)
                 else:
                     self.plc_backend.connect(target, rack=plc_rack, slot=plc_slot)
-        except (PLC_IO_ERRORS, OpcUaNotReadyError, ValueError) as exc:
+        except (*PLC_IO_ERRORS, OpcUaError, ValueError) as exc:
             ok, err_text = False, str(exc)
         except Exception as exc:
-            ok, err_text = False, f"{type(exc).__name__}: {exc}"
+            if self.plc_backend.transport == PLC_TRANSPORT_OPCUA:
+                ok, err_text = False, format_opcua_connect_error(exc, target)
+            else:
+                ok, err_text = False, f"{type(exc).__name__}: {exc}"
         else:
             ok, err_text = True, None
         try:
@@ -175,7 +178,12 @@ class ConnectionMixin:
     ) -> None:
         """Laeuft im Tkinter-Hauptthread."""
         if not ok:
-            messagebox.showerror("SPS-Verbindung", err_text or "Unbekannter Fehler")
+            title = (
+                "OPC-UA-Verbindung"
+                if self._get_plc_transport() == PLC_TRANSPORT_OPCUA
+                else "SPS-Verbindung"
+            )
+            messagebox.showerror(title, err_text or "Unbekannter Fehler")
             self._log(f"SPS-Verbindung fehlgeschlagen: {err_text}")
             self.status_var.set("Nicht verbunden.")
             self._set_connecting_ui(False)
@@ -330,8 +338,13 @@ class ConnectionMixin:
                     ok = self.plc_backend.is_connected(None)
         except PLC_IO_ERRORS as exc:
             err_text = str(exc)
+        except OpcUaError as exc:
+            err_text = str(exc)
         except Exception as exc:
-            err_text = f"{type(exc).__name__}: {exc}"
+            if self.plc_backend.transport == PLC_TRANSPORT_OPCUA:
+                err_text = format_opcua_connect_error(exc, ip)
+            else:
+                err_text = f"{type(exc).__name__}: {exc}"
         try:
             self.after(
                 0,

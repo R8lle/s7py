@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from s7py.opcua_import import import_opcua_client_class, wrap_opcua_connect_error
+
 
 @dataclass(frozen=True)
 class OpcUaBrowseEntry:
@@ -17,18 +19,15 @@ class OpcUaBrowseEntry:
 
 def connect_opcua_client(endpoint_url: str) -> Any:
     """Verbindet einen synchronen asyncua-Client."""
-    try:
-        from asyncua.sync import Client  # type: ignore[import-untyped]
-    except ImportError as exc:
-        raise ImportError(
-            "OPC UA benoetigt das Paket 'asyncua'. Installation: pip install asyncua"
-        ) from exc
-
     url = (endpoint_url or "").strip()
     if not url:
         raise ValueError("OPC-UA-Endpoint fehlt.")
+    Client = import_opcua_client_class()
     client = Client(url)
-    client.connect()
+    try:
+        client.connect()
+    except Exception as exc:
+        raise wrap_opcua_connect_error(exc, url) from exc
     return client
 
 

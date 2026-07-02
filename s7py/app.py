@@ -321,6 +321,7 @@ class S7PyApp(
         self.spin_plc_rack["state"] = snap7_state
         self.spin_plc_slot["state"] = snap7_state
         self.spin_plc_db_number["state"] = snap7_state
+        self._rebuild_file_menu()
 
     def _set_connecting_ui(self, busy):
         """Waehrend Verbindungsaufbau alle Bedienelemente sperren."""
@@ -349,26 +350,40 @@ class S7PyApp(
     def _build_menu(self):
         menubar = tk.Menu(self)
         self.config(menu=menubar)
-        file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Datei", menu=file_menu)
-        file_menu.add_command(
-            label="SPS-Datenbaustein importieren...",
-            command=self._on_import_plc_db,
+        self._file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Datei", menu=self._file_menu)
+        self._rebuild_file_menu()
+
+    def _rebuild_file_menu(self):
+        """Datei-Menue abhaengig vom Protokoll (Snap7 / OPC UA) aufbauen."""
+        from s7py.constants import PLC_TRANSPORT_OPCUA
+
+        transport = (
+            self._get_plc_transport()
+            if hasattr(self, "var_plc_transport")
+            else load_plc_transport()
         )
-        file_menu.add_command(
-            label="OPC UA Variablen (manuell)...",
-            command=self._on_edit_opcua_variables,
-        )
-        file_menu.add_command(
+        self._file_menu.delete(0, "end")
+        if transport == PLC_TRANSPORT_OPCUA:
+            self._file_menu.add_command(
+                label="OPC UA Variablen (manuell)...",
+                command=self._on_edit_opcua_variables,
+            )
+        else:
+            self._file_menu.add_command(
+                label="SPS-Datenbaustein importieren...",
+                command=self._on_import_plc_db,
+            )
+        self._file_menu.add_command(
             label="Diagramm als PNG speichern...",
             command=self._on_export_plot_png,
         )
-        file_menu.add_separator()
-        file_menu.add_command(
+        self._file_menu.add_separator()
+        self._file_menu.add_command(
             label="Datenbank als Tabelle...",
             command=self._on_open_db_table,
         )
-        file_menu.add_command(
+        self._file_menu.add_command(
             label="Datenbank warten...",
             command=self._on_db_maintenance,
         )

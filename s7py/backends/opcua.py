@@ -10,12 +10,18 @@ from typing import Optional
 from s7py.backends.base import AbstractPlcBackend, PLC_TRANSPORT_OPCUA
 from s7py.constants import PLC_READ_BASE_DELAY_S, PLC_READ_MAX_ATTEMPTS
 from s7py.log import log_msg
+from s7py.opcua_import import (
+    OpcUaConfigError,
+    OpcUaError,
+    import_opcua_client_class,
+    wrap_opcua_connect_error,
+)
 from s7py.opcua_values import coerce_opcua_value
 from s7py.schema import DbItem
 
 
-class OpcUaNotReadyError(NotImplementedError):
-    """OPC UA ist in s7py noch nicht vollstaendig angebunden."""
+# Abwaertskompatibilitaet fuer aeltere Importe
+OpcUaNotReadyError = OpcUaConfigError
 
 
 class OpcUaBackend(AbstractPlcBackend):
@@ -46,17 +52,16 @@ class OpcUaBackend(AbstractPlcBackend):
         url = (endpoint_url or "").strip()
         if not url:
             raise ValueError("OPC-UA-Endpoint fehlt (z. B. opc.tcp://192.168.0.10:4840).")
-        try:
-            from asyncua.sync import Client  # type: ignore[import-untyped]
-        except ImportError as exc:
-            raise OpcUaNotReadyError(
-                "OPC UA benoetigt das Paket 'asyncua'. "
-                "Installation: pip install asyncua"
-            ) from exc
+        Client = import_opcua_client_class()
 
         self.disconnect()
         self._client = Client(url)
-        self._client.connect()
+        try:
+            self._client.connect()
+        except Exception as exc:
+            self._client = None
+            self._connected = False
+            raise wrap_opcua_connect_error(exc, url) from exc
         self._endpoint_url = url
         self._connected = True
 
@@ -78,7 +83,7 @@ class OpcUaBackend(AbstractPlcBackend):
             raise ConnectionError("OPC-UA-Client nicht verbunden.")
         mapped = [item for item in items if item.node_id.strip()]
         if not mapped:
-            raise OpcUaNotReadyError(
+            raise OpcUaConfigError(
                 "OPC UA: Keine NodeIds konfiguriert. "
                 "Bitte Menue Datei -> OPC UA Variablen..."
             )
