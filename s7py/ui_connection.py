@@ -11,6 +11,8 @@ from sqlite3 import Error
 from tkinter import messagebox
 
 from s7py.ui_base import S7PyAppProtocol
+from s7py.backends import create_backend
+from s7py.backends.opcua import OpcUaNotReadyError
 from s7py.constants import (
     AUTO_RECONNECT_BASE_DELAY_S,
     AUTO_RECONNECT_MAX_DELAY_S,
@@ -19,6 +21,8 @@ from s7py.constants import (
     DEFAULT_DATABASE,
     DEFAULT_PLC_IP,
     MIN_POLL_INTERVAL_S,
+    PLC_TRANSPORT_OPCUA,
+    PLC_TRANSPORT_SNAP7,
     RECORDING_GLYPHS,
     RECORDING_TICK_MS,
     WORKER_JOIN_TIMEOUT_S,
@@ -32,11 +36,13 @@ from s7py.db import (
     resolve_db_path,
     save_auto_reconnect,
     save_last_plc_ip,
+    save_opcua_endpoint,
     save_plc_db_number,
     save_plc_rack_slot,
+    save_plc_transport,
     save_poll_interval_s,
 )
-from s7py.plc import PLC_IO_ERRORS, plc_is_connected
+from s7py.plc import PLC_IO_ERRORS
 from s7py.schema import DbItem
 from s7py.worker import write_data_to_db
 
@@ -44,8 +50,45 @@ from s7py.worker import write_data_to_db
 class ConnectionMixin:
     """SPS-Verbindung, Aufzeichnungssteuerung, Auto-Reconnect und REC-Indikator."""
 
+    def _get_plc_transport(self: S7PyAppProtocol) -> str:
+        from s7py.constants import TRANSPORT_UI_TO_ID
+
+        label = self.var_plc_transport.get()
+        return TRANSPORT_UI_TO_ID.get(label, PLC_TRANSPORT_SNAP7)
+
+    def _get_opcua_endpoint(self: S7PyAppProtocol) -> str:
+        from s7py.constants import DEFAULT_OPCUA_ENDPOINT
+
+        url = self.var_opcua_endpoint.get().strip()
+        return url or DEFAULT_OPCUA_ENDPOINT
+
+    def _get_connection_target(self: S7PyAppProtocol) -> str:
+        if self._get_plc_transport() == PLC_TRANSPORT_OPCUA:
+            return self._get_opcua_endpoint()
+        return self.var_ip.get().strip() or DEFAULT_PLC_IP
+
+    def _ensure_plc_backend(self: S7PyAppProtocol) -> None:
+        transport = self._get_plc_transport()
+        if self.plc_backend.transport == transport:
+            return
+        try:
+            with self.plc_lock:
+                self.plc_backend.disconnect()
+        except Exception:
+            pass
+        self.plc_backend = create_backend(transport)
+
+    def _on_transport_changed(self: S7PyAppProtocol) -> None:
+        if self._session_active:
+            return
+        save_plc_transport(self._get_plc_transport())
+        save_opcua_endpoint(self._get_opcua_endpoint())
+        self._ensure_plc_backend()
+        self._sync_transport_widgets()
+
     def _on_connect(self: S7PyAppProtocol) -> None:
-        ip = self.var_ip.get().strip() or DEFAULT_PLC_IP
+        self._ensure_plc_backend()
+        target = self._get_connection_target()
         db_path = resolve_db_path(self.var_db.get().strip() or DEFAULT_DATABASE)
 
         try:
@@ -61,13 +104,24 @@ class ConnectionMixin:
         self._reconnecting = False
         save_plc_rack_slot(self._get_plc_rack(), self._get_plc_slot())
         save_plc_db_number(self._get_plc_db_number())
+        save_plc_transport(self._get_plc_transport())
+        save_opcua_endpoint(self._get_opcua_endpoint())
         self._set_connecting_ui(True)
-        self.status_var.set(f"Verbinde mit {ip} ...")
-        self._log(f"Verbindungsaufbau zu {ip} im Hintergrund ...")
+        self.status_var.set(f"Verbinde mit {target} ...")
+        self._log(
+            f"Verbindungsaufbau zu {target} ({self.plc_backend.display_name}) ..."
+        )
 
         threading.Thread(
             target=self._connect_worker,
-            args=(ip, db_path, items, db_length, self._get_plc_rack(), self._get_plc_slot()),
+            args=(
+                target,
+                db_path,
+                items,
+                db_length,
+                self._get_plc_rack(),
+                self._get_plc_slot(),
+            ),
             daemon=True,
             name="PLCConnectWorker",
         ).start()
@@ -83,7 +137,7 @@ class ConnectionMixin:
 
     def _connect_worker(
         self: S7PyAppProtocol,
-        ip: str,
+        target: str,
         db_path: str,
         items: list[DbItem],
         db_length: int,
@@ -93,15 +147,20 @@ class ConnectionMixin:
         """Laeuft im Hintergrund-Thread."""
         try:
             with self.plc_lock:
-                self.plc.connect(ip, plc_rack, plc_slot)
-        except PLC_IO_ERRORS as exc:
+                if self.plc_backend.transport == PLC_TRANSPORT_OPCUA:
+                    self.plc_backend.connect("", endpoint_url=target)
+                else:
+                    self.plc_backend.connect(target, rack=plc_rack, slot=plc_slot)
+        except (PLC_IO_ERRORS, OpcUaNotReadyError, ValueError) as exc:
             ok, err_text = False, str(exc)
         except Exception as exc:
             ok, err_text = False, f"{type(exc).__name__}: {exc}"
         else:
             ok, err_text = True, None
         try:
-            self.after(0, self._connect_done, ok, err_text, ip, db_path, items, db_length)
+            self.after(
+                0, self._connect_done, ok, err_text, target, db_path, items, db_length
+            )
         except (RuntimeError, tk.TclError):
             pass
 
@@ -132,7 +191,7 @@ class ConnectionMixin:
         ):
             try:
                 with self.plc_lock:
-                    self.plc.disconnect()
+                    self.plc_backend.disconnect()
             except PLC_IO_ERRORS:
                 pass
             self.status_var.set("Nicht verbunden.")
@@ -156,11 +215,16 @@ class ConnectionMixin:
         self._refresh_db_stats()
         suffix = self._db_stats_suffix()
         if self._session_active and self._plc_ip and not self._reconnecting:
-            if plc_is_connected(self.plc, self.plc_lock):
+            if self.plc_backend.is_connected(self.plc_lock):
+                detail = self.plc_backend.status_detail(
+                    self._plc_ip,
+                    rack=self._get_plc_rack(),
+                    slot=self._get_plc_slot(),
+                    db_number=self._get_plc_db_number(),
+                    endpoint_url=self._get_opcua_endpoint(),
+                )
                 self.status_var.set(
-                    f"Verbunden: {self._plc_ip}  |  Rack {self._get_plc_rack()}  "
-                    f"Slot {self._get_plc_slot()}  |  SPS-DB{self._get_plc_db_number()}  "
-                    f"|  SQLite: {self._db_path}{suffix}"
+                    f"Verbunden: {detail}  |  SQLite: {self._db_path}{suffix}"
                 )
                 return
         if self._reconnecting:
@@ -186,7 +250,7 @@ class ConnectionMixin:
                 and not self._connecting
                 and self._plc_ip
             ):
-                if not plc_is_connected(self.plc, self.plc_lock):
+                if not self.plc_backend.is_connected(self.plc_lock):
                     if not self._connection_lost:
                         self._connection_lost = True
                         self._log("SPS-Verbindung verloren.")
@@ -252,15 +316,18 @@ class ConnectionMixin:
         err_text: str | None = None
         try:
             with self.plc_lock:
-                if plc_is_connected(self.plc, None):
+                if self.plc_backend.is_connected(None):
                     ok = True
                 else:
                     try:
-                        self.plc.disconnect()
+                        self.plc_backend.disconnect()
                     except PLC_IO_ERRORS:
                         pass
-                    self.plc.connect(ip, plc_rack, plc_slot)
-                    ok = plc_is_connected(self.plc, None)
+                    if self.plc_backend.transport == PLC_TRANSPORT_OPCUA:
+                        self.plc_backend.connect("", endpoint_url=ip)
+                    else:
+                        self.plc_backend.connect(ip, rack=plc_rack, slot=plc_slot)
+                    ok = self.plc_backend.is_connected(None)
         except PLC_IO_ERRORS as exc:
             err_text = str(exc)
         except Exception as exc:
@@ -335,6 +402,8 @@ class ConnectionMixin:
         self.spin_plc_rack["state"] = tk.DISABLED
         self.spin_plc_slot["state"] = tk.DISABLED
         self.spin_plc_db_number["state"] = tk.DISABLED
+        self.cmb_plc_transport["state"] = "disabled"
+        self.entry_opcua_endpoint["state"] = tk.DISABLED
 
     def _stop_recording_async(self: S7PyAppProtocol, on_done) -> None:
         """Stoppt die Aufzeichnung, ohne den Tk-Hauptthread zu blockieren."""
@@ -379,12 +448,12 @@ class ConnectionMixin:
         if self._reconnecting:
             self._set_connection_lost_ui()
         else:
-            self._set_connected_ui(plc_is_connected(self.plc, self.plc_lock))
+            self._set_connected_ui(self.plc_backend.is_connected(self.plc_lock))
 
     def _plc_disconnect_worker(self: S7PyAppProtocol) -> None:
         try:
             with self.plc_lock:
-                self.plc.disconnect()
+                self.plc_backend.disconnect()
         except PLC_IO_ERRORS:
             pass
 
@@ -437,7 +506,7 @@ class ConnectionMixin:
             return
         if self.write_thread is not None and self.write_thread.is_alive():
             return
-        if not plc_is_connected(self.plc, self.plc_lock):
+        if not self.plc_backend.is_connected(self.plc_lock):
             messagebox.showwarning(
                 "SPS-Verbindung",
                 "Keine aktive SPS-Verbindung. Bitte warten, bis die "
@@ -455,7 +524,7 @@ class ConnectionMixin:
             target=write_data_to_db,
             args=(
                 self._db_path,
-                self.plc,
+                self.plc_backend,
                 self._schema.read_length,
                 self._schema.items,
                 self._schema,
@@ -494,7 +563,7 @@ class ConnectionMixin:
                         self._set_connection_lost_ui()
                     else:
                         self._set_connected_ui(
-                            plc_is_connected(self.plc, self.plc_lock)
+                            self.plc_backend.is_connected(self.plc_lock)
                         )
                 self._recording_phase = 0
                 self.var_recording.set("")

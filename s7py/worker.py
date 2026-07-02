@@ -6,6 +6,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Optional
 
+from s7py.backends.base import PlcBackend
 from s7py.constants import (
     DEFAULT_POLL_INTERVAL_S,
     PLC_DB_NUMBER,
@@ -15,7 +16,6 @@ from s7py.constants import (
 )
 from s7py.db import create_connection, create_newline, normalize_poll_interval_s
 from s7py.log import log_msg, logger, notify_count_gap, push_live_snapshot, show_msg
-from s7py.plc import read_plc_db_with_retry
 from s7py.schema import DbItem, PlcDbSchema
 
 def format_plc_value(value: object) -> str:
@@ -49,7 +49,7 @@ def detect_count_gap(old_count: int, count_value: int) -> int | None:
 
 def write_data_to_db(
     database: str,
-    plc,
+    backend: PlcBackend,
     DBlength: int,
     items: list[DbItem],
     schema: PlcDbSchema,
@@ -61,7 +61,7 @@ def write_data_to_db(
     plc_slot: int = PLC_SLOT,
     plc_db_number: int = PLC_DB_NUMBER,
 ) -> None:
-    """Worker-Thread: liest die SPS-DB zyklisch und schreibt neue Messpunkte nach SQLite.
+    """Worker-Thread: liest die SPS zyklisch und schreibt neue Messpunkte nach SQLite.
 
     Schreibt nur, wenn ``Count`` gestiegen ist; erkennt Count-Ruecksprung
     (SPS-Reset) und setzt den internen Vergleichswert zurueck. Beendet
@@ -90,15 +90,14 @@ def write_data_to_db(
             log_msg(f"Abfrage-Nr startet bei {i + 1} (letzte vorhandene id = {i}).")
         interval_s = normalize_poll_interval_s(poll_interval_s)
         while not stop_event.is_set():
-            meh = read_plc_db_with_retry(
-                plc,
+            meh = backend.read_with_retry(
                 plc_db_number,
                 DBlength,
                 items,
-                plc_address=plc_address,
-                plc_rack=plc_rack,
-                plc_slot=plc_slot,
-                plc_lock=plc_lock,
+                address=plc_address,
+                rack=plc_rack,
+                slot=plc_slot,
+                lock=plc_lock,
                 stop_event=stop_event,
             )
             if meh is None:

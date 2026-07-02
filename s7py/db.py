@@ -196,6 +196,39 @@ def save_last_plc_ip(ip: str) -> None:
     save_app_config(config)
 
 
+def normalize_plc_transport(value: object) -> str:
+    """Transport-ID auf snap7 oder opcua normalisieren."""
+    from s7py.constants import PLC_TRANSPORT_OPCUA, PLC_TRANSPORT_SNAP7
+
+    raw = str(value or "").strip().lower()
+    if raw in (PLC_TRANSPORT_OPCUA, "opc ua", "opc-ua", "opc_ua"):
+        return PLC_TRANSPORT_OPCUA
+    return PLC_TRANSPORT_SNAP7
+
+
+def load_plc_transport() -> str:
+    return normalize_plc_transport(load_app_config().get("plc_transport"))
+
+
+def save_plc_transport(transport: str) -> None:
+    config = load_app_config()
+    config["plc_transport"] = normalize_plc_transport(transport)
+    save_app_config(config)
+
+
+def load_opcua_endpoint() -> str:
+    from s7py.constants import DEFAULT_OPCUA_ENDPOINT
+
+    raw = str(load_app_config().get("opcua_endpoint", "") or "").strip()
+    return raw or DEFAULT_OPCUA_ENDPOINT
+
+
+def save_opcua_endpoint(url: str) -> None:
+    config = load_app_config()
+    config["opcua_endpoint"] = (url or "").strip()
+    save_app_config(config)
+
+
 def normalize_poll_interval_s(value: object) -> float:
     """Poll-Intervall in Sekunden auf erlaubten Bereich begrenzen."""
     try:

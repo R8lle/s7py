@@ -19,8 +19,7 @@ from datetime import datetime
 from sqlite3 import Error
 from tkinter import messagebox, scrolledtext, ttk
 
-import snap7.client
-
+from s7py.backends import create_backend
 from s7py.constants import (
     CONNECTION_WATCH_MS,
     DEFAULT_PLC_IP,
@@ -39,11 +38,13 @@ from s7py.constants import (
     PLOT_MAX_ROWS_DEFAULT,
     MIN_PLOT_REFRESH_MS,
     MAX_PLOT_REFRESH_MS,
+    PLC_TRANSPORT_SNAP7,
     RECORDING_TICK_MS,
     RECORDING_RESUME_LABEL,
     RECORDING_START_BUTTON_WIDTH,
     RECORDING_START_LABEL,
     TIMESTAMP_FORMAT_LOG,
+    TRANSPORT_UI_LABELS,
     WINDOW_MIN_WIDTH,
 )
 from s7py.db import (
@@ -51,9 +52,11 @@ from s7py.db import (
     load_auto_reconnect,
     load_last_db_path,
     load_last_plc_ip,
+    load_opcua_endpoint,
     load_plc_db_number,
     load_plc_rack,
     load_plc_slot,
+    load_plc_transport,
     load_plot_refresh_ms,
     load_poll_interval_s,
     poll_interval_ms_from_s,
@@ -70,6 +73,7 @@ from s7py.log import COUNT_GAP_QUEUE, LIVE_VALUES_QUEUE, LOG_QUEUE, logger
 from s7py.schema import DbItem
 from s7py.ui_connection import ConnectionMixin
 from s7py.ui_database import DatabaseMixin
+from s7py.ui_opcua_schema import OpcUaSchemaMixin
 from s7py.ui_plot import PlotMixin
 from s7py.ui_schema import SchemaImportMixin
 from s7py.ui_flow import FlowFrame
@@ -80,6 +84,7 @@ class S7PyApp(
     ConnectionMixin,
     DatabaseMixin,
     SchemaImportMixin,
+    OpcUaSchemaMixin,
     tk.Tk,
 ):
     """SPS lesen, SQLite schreiben (Thread), Kurven aus DB — alles in einem Fenster."""
@@ -88,7 +93,7 @@ class S7PyApp(
         super().__init__()
         self.title("s7py — SPS / SQLite / Diagramm")
 
-        self.plc = snap7.client.Client()
+        self.plc_backend = create_backend(load_plc_transport())
         self.plc_lock = threading.RLock()
         self.conn_read = None
         self.cursor_read = None
@@ -288,6 +293,34 @@ class S7PyApp(
         self.spin_plc_rack["state"] = tk.DISABLED if connected else tk.NORMAL
         self.spin_plc_slot["state"] = tk.DISABLED if connected else tk.NORMAL
         self.spin_plc_db_number["state"] = tk.DISABLED if connected else tk.NORMAL
+        self.cmb_plc_transport["state"] = "disabled" if connected else "readonly"
+        self.entry_opcua_endpoint["state"] = tk.DISABLED if connected else tk.NORMAL
+        self._sync_transport_widgets()
+
+    def _sync_transport_widgets(self):
+        from s7py.constants import PLC_TRANSPORT_OPCUA
+
+        is_snap7 = self._get_plc_transport() == PLC_TRANSPORT_SNAP7
+        connected = self._session_active
+        snap7_state = tk.DISABLED if connected or not is_snap7 else tk.NORMAL
+        opc_state = tk.DISABLED if connected or is_snap7 else tk.NORMAL
+
+        if is_snap7:
+            self.lbl_ip.pack(side=tk.LEFT, padx=(0, 4))
+            self.entry_ip.pack(side=tk.LEFT, padx=(0, 12))
+            self.lbl_opcua_endpoint.pack_forget()
+            self.entry_opcua_endpoint.pack_forget()
+            self.entry_ip["state"] = tk.DISABLED if connected else tk.NORMAL
+        else:
+            self.lbl_ip.pack_forget()
+            self.entry_ip.pack_forget()
+            self.lbl_opcua_endpoint.pack(side=tk.LEFT, padx=(0, 4))
+            self.entry_opcua_endpoint.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            self.entry_opcua_endpoint["state"] = opc_state
+
+        self.spin_plc_rack["state"] = snap7_state
+        self.spin_plc_slot["state"] = snap7_state
+        self.spin_plc_db_number["state"] = snap7_state
 
     def _set_connecting_ui(self, busy):
         """Waehrend Verbindungsaufbau alle Bedienelemente sperren."""
@@ -304,6 +337,8 @@ class S7PyApp(
         self.spin_plc_rack["state"] = state
         self.spin_plc_slot["state"] = state
         self.spin_plc_db_number["state"] = state
+        self.cmb_plc_transport["state"] = "disabled"
+        self.entry_opcua_endpoint["state"] = state
 
     def _build_ui(self):
         self._build_menu()
@@ -319,6 +354,10 @@ class S7PyApp(
         file_menu.add_command(
             label="SPS-Datenbaustein importieren...",
             command=self._on_import_plc_db,
+        )
+        file_menu.add_command(
+            label="OPC UA Variablen (manuell)...",
+            command=self._on_edit_opcua_variables,
         )
         file_menu.add_command(
             label="Diagramm als PNG speichern...",
@@ -338,34 +377,58 @@ class S7PyApp(
         top = ttk.Frame(self, padding=8)
         top.pack(side=tk.TOP, fill=tk.X)
 
-        ttk.Label(top, text="SPS-IP:").grid(row=0, column=0, sticky=tk.W, padx=(0, 4))
-        self.var_ip = tk.StringVar(value=self._initial_plc_ip)
-        self.entry_ip = ttk.Entry(top, textvariable=self.var_ip, width=18)
-        self.entry_ip.grid(row=0, column=1, sticky=tk.W)
+        transport_row = ttk.Frame(top)
+        transport_row.grid(row=0, column=0, columnspan=12, sticky=tk.EW)
+        ttk.Label(transport_row, text="Protokoll:").pack(side=tk.LEFT, padx=(0, 4))
+        transport_label = TRANSPORT_UI_LABELS.get(
+            load_plc_transport(), TRANSPORT_UI_LABELS[PLC_TRANSPORT_SNAP7]
+        )
+        self.var_plc_transport = tk.StringVar(value=transport_label)
+        self.cmb_plc_transport = ttk.Combobox(
+            transport_row,
+            textvariable=self.var_plc_transport,
+            values=list(TRANSPORT_UI_LABELS.values()),
+            state="readonly",
+            width=8,
+        )
+        self.cmb_plc_transport.pack(side=tk.LEFT, padx=(0, 12))
+        self.cmb_plc_transport.bind("<<ComboboxSelected>>", lambda _e: self._on_transport_changed())
 
-        ttk.Label(top, text="Rack:").grid(row=0, column=2, sticky=tk.W, padx=(12, 4))
+        self.lbl_ip = ttk.Label(transport_row, text="SPS-IP:")
+        self.lbl_ip.pack(side=tk.LEFT, padx=(0, 4))
+        self.var_ip = tk.StringVar(value=self._initial_plc_ip)
+        self.entry_ip = ttk.Entry(transport_row, textvariable=self.var_ip, width=18)
+        self.entry_ip.pack(side=tk.LEFT, padx=(0, 12))
+
+        self.lbl_opcua_endpoint = ttk.Label(transport_row, text="OPC-UA-Endpoint:")
+        self.var_opcua_endpoint = tk.StringVar(value=load_opcua_endpoint())
+        self.entry_opcua_endpoint = ttk.Entry(
+            transport_row, textvariable=self.var_opcua_endpoint, width=36
+        )
+
+        ttk.Label(top, text="Rack:").grid(row=1, column=0, sticky=tk.W, padx=(0, 4))
         self.var_plc_rack = tk.IntVar(value=load_plc_rack())
         self.spin_plc_rack = ttk.Spinbox(
             top, from_=0, to=7, width=4, textvariable=self.var_plc_rack
         )
-        self.spin_plc_rack.grid(row=0, column=3, sticky=tk.W)
+        self.spin_plc_rack.grid(row=1, column=1, sticky=tk.W)
 
-        ttk.Label(top, text="Slot:").grid(row=0, column=4, sticky=tk.W, padx=(8, 4))
+        ttk.Label(top, text="Slot:").grid(row=1, column=2, sticky=tk.W, padx=(8, 4))
         self.var_plc_slot = tk.IntVar(value=load_plc_slot())
         self.spin_plc_slot = ttk.Spinbox(
             top, from_=0, to=31, width=4, textvariable=self.var_plc_slot
         )
-        self.spin_plc_slot.grid(row=0, column=5, sticky=tk.W)
+        self.spin_plc_slot.grid(row=1, column=3, sticky=tk.W)
 
-        ttk.Label(top, text="SPS-DB:").grid(row=0, column=6, sticky=tk.W, padx=(8, 4))
+        ttk.Label(top, text="SPS-DB:").grid(row=1, column=4, sticky=tk.W, padx=(8, 4))
         self.var_plc_db_number = tk.IntVar(value=load_plc_db_number())
         self.spin_plc_db_number = ttk.Spinbox(
             top, from_=1, to=65535, width=5, textvariable=self.var_plc_db_number
         )
-        self.spin_plc_db_number.grid(row=0, column=7, sticky=tk.W)
+        self.spin_plc_db_number.grid(row=1, column=5, sticky=tk.W)
 
         ttk.Label(top, text="Abfrage (ms):").grid(
-            row=0, column=8, sticky=tk.W, padx=(12, 4)
+            row=1, column=6, sticky=tk.W, padx=(12, 4)
         )
         self.var_poll_interval_ms = tk.IntVar(
             value=poll_interval_ms_from_s(load_poll_interval_s())
@@ -383,14 +446,14 @@ class S7PyApp(
         self.spin_poll_interval.bind(
             "<FocusOut>", self._on_poll_interval_focus_out, add="+"
         )
-        self.spin_poll_interval.grid(row=0, column=9, sticky=tk.W)
+        self.spin_poll_interval.grid(row=1, column=7, sticky=tk.W)
 
         ttk.Label(top, text="SQLite-Datei:").grid(
-            row=1, column=0, sticky=tk.W, padx=(0, 4), pady=(6, 0)
+            row=2, column=0, sticky=tk.W, padx=(0, 4), pady=(6, 0)
         )
         self.var_db = tk.StringVar(value=self._db_path)
         db_row = ttk.Frame(top)
-        db_row.grid(row=1, column=1, columnspan=11, sticky=tk.EW, pady=(6, 0))
+        db_row.grid(row=2, column=1, columnspan=11, sticky=tk.EW, pady=(6, 0))
         db_row.columnconfigure(0, weight=1)
         self.entry_db = ttk.Entry(db_row, textvariable=self.var_db, width=36)
         self.entry_db.grid(row=0, column=0, sticky=tk.EW)
@@ -401,7 +464,7 @@ class S7PyApp(
         top.columnconfigure(1, weight=1)
 
         btn_row = ttk.Frame(top)
-        btn_row.grid(row=2, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
+        btn_row.grid(row=3, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
         self.btn_connect = ttk.Button(btn_row, text="Verbinden", command=self._on_connect)
         self.btn_connect.pack(side=tk.LEFT, padx=(0, 6))
         self.btn_disconnect = ttk.Button(
@@ -442,7 +505,7 @@ class S7PyApp(
         self.btn_db_table.pack(side=tk.LEFT)
 
         live_f = ttk.LabelFrame(top, text="SPS (letzter Messpunkt)", padding=(8, 4))
-        live_f.grid(row=3, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
+        live_f.grid(row=4, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
         live_inner = ttk.Frame(live_f)
         live_inner.pack(fill=tk.X)
         live_specs = (
@@ -461,7 +524,7 @@ class S7PyApp(
 
         self.status_var = tk.StringVar(value="Nicht verbunden.")
         status_row = ttk.Frame(top)
-        status_row.grid(row=4, column=0, columnspan=12, sticky=tk.EW, pady=(6, 0))
+        status_row.grid(row=5, column=0, columnspan=12, sticky=tk.EW, pady=(6, 0))
         status_row.columnconfigure(0, weight=1)
         ttk.Label(status_row, textvariable=self.status_var).grid(
             row=0, column=0, sticky=tk.W
@@ -476,7 +539,7 @@ class S7PyApp(
         self.lbl_recording.grid(row=0, column=1, sticky=tk.E, padx=(8, 0))
 
         plot_opts = ttk.Frame(top)
-        plot_opts.grid(row=5, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
+        plot_opts.grid(row=6, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
         ttk.Label(plot_opts, text="Diagramm:").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Radiobutton(
             plot_opts,
@@ -513,10 +576,11 @@ class S7PyApp(
         self._sync_plot_scope_widgets()
 
         plot_field_row = ttk.Frame(top)
-        plot_field_row.grid(row=6, column=0, columnspan=12, sticky=tk.EW, pady=(4, 0))
+        plot_field_row.grid(row=7, column=0, columnspan=12, sticky=tk.EW, pady=(4, 0))
         ttk.Label(plot_field_row, text="Kurven:").pack(side=tk.LEFT, padx=(0, 6))
         self.plot_field_checks_frame = FlowFrame(plot_field_row, h_pad=8, v_pad=2)
         self.plot_field_checks_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._sync_transport_widgets()
 
     def _build_log_area(self):
         log_frame = ttk.LabelFrame(self, text="Meldungen", padding=4)

@@ -9,6 +9,15 @@ from typing import Any
 
 from s7py.constants import DEFAULT_DB_LAYOUT, PLC_DB_NUMBER
 
+OPCUA_DATATYPES: tuple[str, ...] = (
+    "Real",
+    "DWord",
+    "Int",
+    "Bool",
+    "String",
+    "Byte",
+)
+
 S7_ALIGNMENT: dict[str, int] = {
     "BOOL": 1,
     "BYTE": 1,
@@ -96,6 +105,7 @@ class DbItem:
     store: bool = True
     size: int = 0
     s7_type: str = ""
+    node_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Serialisiert fuer ``s7py_db.json`` (rueckwaertskompatibel)."""
@@ -110,6 +120,8 @@ class DbItem:
             data["size"] = self.size
         if self.s7_type:
             data["s7_type"] = self.s7_type
+        if self.node_id:
+            data["node_id"] = self.node_id
         return data
 
     @classmethod
@@ -121,6 +133,7 @@ class DbItem:
             store=data.get("store", True) is not False,
             size=int(data["size"]) if data.get("size") else 0,
             s7_type=str(data.get("s7_type", "") or ""),
+            node_id=str(data.get("node_id", "") or ""),
         )
 
 
@@ -362,3 +375,72 @@ def _schema_from_layout(layout: str, *, source_file: str = "") -> PlcDbSchema:
 
 def default_plc_schema() -> PlcDbSchema:
     return _schema_from_layout(DEFAULT_DB_LAYOUT)
+
+
+def _derive_plot_and_live_fields(sqlite_columns: list[str]) -> tuple[list[str], list[str]]:
+    real_names = [name for name in sqlite_columns]
+    plot_1 = next(
+        (name for name in sqlite_columns if "temp" in name.lower()),
+        sqlite_columns[0] if sqlite_columns else "Temperature",
+    )
+    plot_2 = next(
+        (name for name in sqlite_columns if "dist" in name.lower()),
+        sqlite_columns[1] if len(sqlite_columns) > 1 else plot_1,
+    )
+    live_fields: list[str] = []
+    for pattern in ("count", "temp", "dist", "motor"):
+        for col in sqlite_columns:
+            if pattern in col.lower() and col not in live_fields:
+                live_fields.append(col)
+                break
+    if not live_fields:
+        live_fields = sqlite_columns[:4]
+    return [plot_1, plot_2], live_fields
+
+
+def schema_from_opcua_manual(
+    items: list[DbItem],
+    *,
+    count_field: str,
+) -> PlcDbSchema:
+    """Erzeugt ein OPC-UA-Schema aus manuell gepflegten Feldern."""
+    if not items:
+        raise ValueError("Mindestens eine Variable erforderlich.")
+
+    names = [it.name.strip() for it in items]
+    if any(not name for name in names):
+        raise ValueError("Jede Variable braucht einen Namen.")
+    if len(set(names)) != len(names):
+        raise ValueError("Variablennamen muessen eindeutig sein.")
+
+    for it in items:
+        if it.datatype not in OPCUA_DATATYPES:
+            raise ValueError(f"Unbekannter Datentyp: {it.datatype}")
+
+    if count_field not in names:
+        raise ValueError(f"Count-Feld „{count_field}“ fehlt in der Variablenliste.")
+
+    count_item = next(it for it in items if it.name == count_field)
+    if not count_item.node_id.strip():
+        raise ValueError(f"Count-Feld „{count_field}“ braucht eine NodeId.")
+
+    sqlite_columns = [it.name for it in items if it.store]
+    if not sqlite_columns:
+        raise ValueError("Mindestens ein Feld fuer SQLite aktivieren.")
+
+    plot_fields, live_fields = _derive_plot_and_live_fields(sqlite_columns)
+    layout = "\n".join(
+        f"{it.name}\t{it.datatype}\t{it.node_id or 'opcua'}" for it in items
+    )
+    return PlcDbSchema(
+        source_file="",
+        block_name="OPC UA manuell",
+        db_number=PLC_DB_NUMBER,
+        layout=layout,
+        items=items,
+        read_length=0,
+        count_field=count_field,
+        plot_fields=plot_fields,
+        live_fields=live_fields,
+        sqlite_columns=sqlite_columns,
+    )
