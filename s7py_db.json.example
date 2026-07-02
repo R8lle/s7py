@@ -1,0 +1,87 @@
+{
+  "last_database": "s7py.db",
+  "plc_structure": {
+    "source_file": "SnapDB.db",
+    "block_name": "SnapDB",
+    "db_number": 30,
+    "layout": "Count\tDWord\t0.0\nTemperature\tReal\t4.0\nDistanceOverAll\tReal\t8.0\nCyclesOverAll\tDWord\t12.0\nMotorCurrent\tReal\t16.0\nDB_String\tString\t20.0\nReserve\tByte\t276.0",
+    "items": [
+      {
+        "name": "Count",
+        "datatype": "DWord",
+        "bytebit": "0.0",
+        "size": 4,
+        "s7_type": "DINT"
+      },
+      {
+        "name": "Temperature",
+        "datatype": "Real",
+        "bytebit": "4.0",
+        "size": 4,
+        "s7_type": "REAL"
+      },
+      {
+        "name": "DistanceOverAll",
+        "datatype": "Real",
+        "bytebit": "8.0",
+        "size": 4,
+        "s7_type": "REAL"
+      },
+      {
+        "name": "CyclesOverAll",
+        "datatype": "DWord",
+        "bytebit": "12.0",
+        "size": 4,
+        "s7_type": "DINT"
+      },
+      {
+        "name": "MotorCurrent",
+        "datatype": "Real",
+        "bytebit": "16.0",
+        "size": 4,
+        "s7_type": "REAL"
+      },
+      {
+        "name": "DB_String",
+        "datatype": "String",
+        "bytebit": "20.0",
+        "size": 256,
+        "s7_type": "STRING"
+      },
+      {
+        "name": "Reserve",
+        "datatype": "Byte",
+        "bytebit": "276.0",
+        "store": false,
+        "size": 256,
+        "s7_type": "BYTE"
+      }
+    ],
+    "read_length": 532,
+    "count_field": "Count",
+    "plot_fields": [
+      "Temperature",
+      "DistanceOverAll"
+    ],
+    "live_fields": [
+      "Count",
+      "Temperature",
+      "DistanceOverAll",
+      "MotorCurrent"
+    ],
+    "sqlite_columns": [
+      "Count",
+      "Temperature",
+      "DistanceOverAll",
+      "CyclesOverAll",
+      "MotorCurrent",
+      "DB_String"
+    ]
+  },
+  "poll_interval_s": 0.1,
+  "auto_reconnect": true,
+  "plc_rack": 0,
+  "plc_slot": 0,
+  "plc_db_number": 30,
+  "plot_refresh_ms": 1000
+}

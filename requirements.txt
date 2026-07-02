@@ -1,0 +1,4 @@
+# Flexible Versionen, damit pip fertige Pakete (Wheels) waehlen kann.
+# python-snap7 3.0.0: reines Python, S7-Protokoll ohne native libsnap7/DLL.
+matplotlib>=3.8
+python-snap7==3.0.0

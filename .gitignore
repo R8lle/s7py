@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Build / Distribution
+dist/
+build/
+*.egg-info/
+.eggs/
+*.spec.bak
+
+# SQLite Laufzeitdateien
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# TIA-Beispiel-/Testdatenbaustein (Schema liegt in s7py_db.json)
+SnapDB.db
+
+# Logs und lokale Konfiguration
+*.log
+s7py_db.json
+
+# Lokale Diagramm-Exports (Messdaten)
+s7py_Diagramm_*.png
+
+.DS_Store

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "s7py"
+version = "0.9.0"
+description = "SPS lesen, SQLite speichern, Live-Diagramm (Snap7; OPC UA geplant)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE", "LICENSE_THIRD_PARTY.txt"]
+authors = [{ name = "R@lle" }]
+dependencies = [
+    "matplotlib>=3.8",
+    "python-snap7==3.0.0",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+s7py = "s7py.__main__:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["s7py*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
