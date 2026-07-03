@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-MIN_PY=311
+MIN_PY=3.11
 
 version_ge() {
     python3 - "$MIN_PY" <<'PY'
