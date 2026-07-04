@@ -10,10 +10,10 @@ from typing import Optional
 from s7py.backends.base import AbstractPlcBackend, PLC_TRANSPORT_OPCUA
 from s7py.constants import PLC_READ_BASE_DELAY_S, PLC_READ_MAX_ATTEMPTS
 from s7py.log import log_msg
+from s7py.opcua_connect import connect_opcua_sync_client
 from s7py.opcua_import import (
     OpcUaConfigError,
     OpcUaError,
-    import_opcua_client_class,
     wrap_opcua_connect_error,
 )
 from s7py.opcua_values import coerce_opcua_value
@@ -52,12 +52,10 @@ class OpcUaBackend(AbstractPlcBackend):
         url = (endpoint_url or "").strip()
         if not url:
             raise ValueError("OPC-UA-Endpoint fehlt (z. B. opc.tcp://192.168.0.10:4840).")
-        Client = import_opcua_client_class()
 
         self.disconnect()
-        self._client = Client(url)
         try:
-            self._client.connect()
+            self._client = connect_opcua_sync_client(url)
         except Exception as exc:
             self._client = None
             self._connected = False

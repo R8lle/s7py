@@ -32,6 +32,7 @@ from s7py.schema import (
     PlcDbSchema,
     coerce_db_items,
     default_plc_schema,
+    is_opcua_schema_items,
     parse_db_layout,
 )
 
@@ -125,7 +126,12 @@ def schema_from_config(config: dict) -> PlcDbSchema:
     else:
         plot_fields_list = [str(name) for name in plot_fields_raw]
     live_fields = plc.get("live_fields") or sqlite_columns[:4]
-    read_length = int(plc.get("read_length", 0) or 0) or get_db_size(items)
+    if "read_length" in plc:
+        read_length = int(plc.get("read_length") or 0)
+    elif is_opcua_schema_items(items):
+        read_length = 0
+    else:
+        read_length = get_db_size(items)
 
     source_raw = str(plc.get("source_file", "")).strip()
     return PlcDbSchema(
@@ -227,6 +233,17 @@ def save_opcua_endpoint(url: str) -> None:
     config = load_app_config()
     config["opcua_endpoint"] = (url or "").strip()
     save_app_config(config)
+
+
+def load_opcua_security_config() -> "OpcUaSecurityConfig":
+    from s7py.opcua_connect import OpcUaSecurityConfig
+
+    cfg = load_app_config()
+    return OpcUaSecurityConfig(
+        client_cert=str(cfg.get("opcua_client_cert", "") or "").strip(),
+        client_key=str(cfg.get("opcua_client_key", "") or "").strip(),
+        client_key_password=str(cfg.get("opcua_client_key_password", "") or "").strip(),
+    )
 
 
 def normalize_poll_interval_s(value: object) -> float:

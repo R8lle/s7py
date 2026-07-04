@@ -182,6 +182,8 @@ def get_db_size(
     """
     max_end = 0
     for item in items:
+        if (item.bytebit or "").strip().lower() == "opcua":
+            continue
         datatype = item.datatype
         if item.size > 0:
             field_size = item.size

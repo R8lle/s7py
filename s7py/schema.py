@@ -150,6 +150,13 @@ def coerce_db_items(raw: list[Any]) -> list[DbItem]:
     return items
 
 
+def is_opcua_schema_items(items: list[DbItem]) -> bool:
+    """True, wenn alle Items aus dem manuellen OPC-UA-Schema stammen."""
+    return bool(items) and all(
+        (item.bytebit or "").strip().lower() == "opcua" for item in items
+    )
+
+
 @dataclass
 class PlcDbSchema:
     """Aus einem TIA-Datenbaustein abgeleitete Snap7- und SQLite-Struktur."""

@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from s7py.opcua_import import import_opcua_client_class, wrap_opcua_connect_error
+from s7py.opcua_connect import connect_opcua_sync_client
+from s7py.opcua_import import wrap_opcua_connect_error
 
 
 @dataclass(frozen=True)
@@ -22,13 +23,10 @@ def connect_opcua_client(endpoint_url: str) -> Any:
     url = (endpoint_url or "").strip()
     if not url:
         raise ValueError("OPC-UA-Endpoint fehlt.")
-    Client = import_opcua_client_class()
-    client = Client(url)
     try:
-        client.connect()
+        return connect_opcua_sync_client(url)
     except Exception as exc:
         raise wrap_opcua_connect_error(exc, url) from exc
-    return client
 
 
 def list_child_nodes(client: Any, node_id: str | None = None) -> list[OpcUaBrowseEntry]:

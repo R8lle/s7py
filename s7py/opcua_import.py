@@ -98,6 +98,17 @@ def format_opcua_connect_error(exc: BaseException, endpoint: str) -> str:
         return str(exc)
     url = (endpoint or "").strip() or "?"
     type_name = type(exc).__name__
+    msg_lower = str(exc).lower()
+    if "badsecuritypolicyrejected" in msg_lower or "security policy" in msg_lower:
+        return (
+            f"OPC-UA-Sicherheit vom Server abgelehnt: {url}\n\n"
+            "Der Server erlaubt die aktuelle Security Policy nicht. "
+            "s7py versucht automatisch einen passenden Endpoint zu waehlen; "
+            "wenn diese Meldung bleibt, pruefen Sie die OPC-UA-Sicherheit in TIA "
+            '(Policy "None" aktivieren) oder hinterlegen Sie Client-Zertifikate '
+            "in s7py_db.json.\n\n"
+            f"Details ({type_name}): {exc}"
+        )
     if _looks_like_unreachable_server(exc):
         return (
             f"OPC-UA-Server nicht erreichbar: {url}\n\n"

@@ -8,6 +8,7 @@ from s7py.db import (
     build_create_projects_sql,
     create_database,
     quote_identifier,
+    schema_from_config,
     table_columns,
 )
 from s7py.schema import DbItem, PlcDbSchema, default_plc_schema
@@ -36,6 +37,36 @@ class TestQuoteIdentifier:
     def test_null_byte_raises(self):
         with pytest.raises(ValueError):
             quote_identifier("bad\x00name")
+
+
+class TestSchemaFromConfig:
+    def test_opcua_manual_schema_with_read_length_zero(self):
+        schema = schema_from_config(
+            {
+                "plc_structure": {
+                    "read_length": 0,
+                    "block_name": "OPC UA manuell",
+                    "items": [
+                        {
+                            "name": "Count",
+                            "datatype": "DWord",
+                            "bytebit": "opcua",
+                            "node_id": "ns=2;i=1",
+                        },
+                        {
+                            "name": "Temperature",
+                            "datatype": "Real",
+                            "bytebit": "opcua",
+                            "node_id": "ns=2;i=2",
+                        },
+                    ],
+                    "count_field": "Count",
+                    "sqlite_columns": ["Count", "Temperature"],
+                }
+            }
+        )
+        assert schema.read_length == 0
+        assert len(schema.items) == 2
 
 
 class TestBuildCreateProjectsSql:
