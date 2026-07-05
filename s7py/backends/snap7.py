@@ -89,3 +89,19 @@ class Snap7Backend(AbstractPlcBackend):
         return (
             f"Snap7: {address}  |  Rack {rack}  Slot {slot}  |  SPS-DB{db_number}"
         )
+
+    def connection_log_detail(
+        self,
+        address: str,
+        *,
+        rack: int = 0,
+        slot: int = 0,
+        db_number: int = 0,
+        endpoint_url: str = "",
+    ) -> str:
+        del endpoint_url, db_number
+        return (
+            f"Verbindungsmethode: Snap7 ISO-on-TCP | "
+            f"Weg: Rack/Slot-Verbindung | "
+            f"{address} Rack {rack} Slot {slot}"
+        )

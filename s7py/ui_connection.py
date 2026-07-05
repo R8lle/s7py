@@ -18,7 +18,6 @@ from s7py.constants import (
     AUTO_RECONNECT_MAX_DELAY_S,
     CONNECTION_WATCH_MS,
     DB_STATS_REFRESH_MS,
-    DEFAULT_DATABASE,
     DEFAULT_PLC_IP,
     MIN_POLL_INTERVAL_S,
     PLC_TRANSPORT_OPCUA,
@@ -28,6 +27,9 @@ from s7py.constants import (
     WORKER_JOIN_TIMEOUT_S,
 )
 from s7py.db import (
+    default_db_path_for_transport,
+    load_plc_transport,
+    merge_opcua_security_config,
     normalize_plc_rack,
     normalize_plc_slot,
     normalize_plc_db_number,
@@ -36,14 +38,17 @@ from s7py.db import (
     resolve_db_path,
     save_auto_reconnect,
     save_last_plc_ip,
+    save_opcua_credentials,
     save_opcua_endpoint,
     save_plc_db_number,
     save_plc_rack_slot,
+    save_plc_schema,
     save_plc_transport,
     save_poll_interval_s,
 )
 from s7py.plc import PLC_IO_ERRORS
-from s7py.schema import DbItem
+from s7py.opcua_connect import OpcUaSecurityConfig
+from s7py.schema import DbItem, items_for_plc_read
 from s7py.worker import write_data_to_db
 
 
@@ -81,15 +86,23 @@ class ConnectionMixin:
     def _on_transport_changed(self: S7PyAppProtocol) -> None:
         if self._session_active:
             return
+        old_transport = load_plc_transport()
+        save_plc_schema(self._schema, transport=old_transport)
         save_plc_transport(self._get_plc_transport())
         save_opcua_endpoint(self._get_opcua_endpoint())
+        if self._get_plc_transport() == PLC_TRANSPORT_OPCUA:
+            self._persist_opcua_credentials_from_ui()
         self._ensure_plc_backend()
         self._sync_transport_widgets()
+        self._reload_schema_for_transport(self._get_plc_transport())
 
     def _on_connect(self: S7PyAppProtocol) -> None:
         self._ensure_plc_backend()
         target = self._get_connection_target()
-        db_path = resolve_db_path(self.var_db.get().strip() or DEFAULT_DATABASE)
+        db_path = resolve_db_path(
+            self.var_db.get().strip()
+            or default_db_path_for_transport(self._get_plc_transport())
+        )
 
         try:
             if not self._schema.items:
@@ -106,6 +119,16 @@ class ConnectionMixin:
         save_plc_db_number(self._get_plc_db_number())
         save_plc_transport(self._get_plc_transport())
         save_opcua_endpoint(self._get_opcua_endpoint())
+        opcua_security: OpcUaSecurityConfig | None = None
+        if self._get_plc_transport() == PLC_TRANSPORT_OPCUA:
+            opcua_security = self._get_opcua_security_config()
+            if opcua_security.has_credentials() and not opcua_security.password:
+                messagebox.showerror(
+                    "OPC-UA-Verbindung",
+                    "Benutzername ohne Passwort — bitte Passwort eintragen.",
+                )
+                return
+            self._persist_opcua_credentials_from_ui()
         self._set_connecting_ui(True)
         self.status_var.set(f"Verbinde mit {target} ...")
         self._log(
@@ -121,6 +144,7 @@ class ConnectionMixin:
                 db_length,
                 self._get_plc_rack(),
                 self._get_plc_slot(),
+                opcua_security,
             ),
             daemon=True,
             name="PLCConnectWorker",
@@ -135,6 +159,44 @@ class ConnectionMixin:
     def _get_plc_db_number(self: S7PyAppProtocol) -> int:
         return normalize_plc_db_number(self.var_plc_db_number.get())
 
+    def _get_opcua_password(self: S7PyAppProtocol) -> str:
+        if hasattr(self, "entry_opcua_password"):
+            return self.entry_opcua_password.get()
+        return self.var_opcua_password.get()
+
+    def _persist_opcua_credentials_from_ui(self: S7PyAppProtocol) -> None:
+        """Benutzer/Passwort aus der UI in s7py_db.json schreiben (auch leer = loeschen)."""
+        if self._session_active:
+            return
+        if self._get_plc_transport() != PLC_TRANSPORT_OPCUA:
+            return
+        username = self.var_opcua_username.get().strip()
+        password = self._get_opcua_password() if username else ""
+        if not username and self.var_opcua_password.get():
+            self.var_opcua_password.set("")
+        save_opcua_credentials(username, password)
+
+    def _on_opcua_username_changed(self: S7PyAppProtocol, *_args: object) -> None:
+        if not self.var_opcua_username.get().strip():
+            self.var_opcua_password.set("")
+
+    def _get_opcua_security_config(self: S7PyAppProtocol) -> OpcUaSecurityConfig:
+        return merge_opcua_security_config(
+            username=self.var_opcua_username.get(),
+            password=self._get_opcua_password(),
+        )
+
+    def _log_connection_details(self: S7PyAppProtocol) -> None:
+        detail = self.plc_backend.connection_log_detail(
+            self._plc_ip or "",
+            rack=self._get_plc_rack(),
+            slot=self._get_plc_slot(),
+            db_number=self._get_plc_db_number(),
+            endpoint_url=self._get_opcua_endpoint(),
+        )
+        if detail:
+            self._log(detail)
+
     def _connect_worker(
         self: S7PyAppProtocol,
         target: str,
@@ -143,12 +205,17 @@ class ConnectionMixin:
         db_length: int,
         plc_rack: int,
         plc_slot: int,
+        opcua_security: OpcUaSecurityConfig | None,
     ) -> None:
         """Laeuft im Hintergrund-Thread."""
         try:
             with self.plc_lock:
                 if self.plc_backend.transport == PLC_TRANSPORT_OPCUA:
-                    self.plc_backend.connect("", endpoint_url=target)
+                    self.plc_backend.connect(
+                        "",
+                        endpoint_url=target,
+                        security=opcua_security,
+                    )
                 else:
                     self.plc_backend.connect(target, rack=plc_rack, slot=plc_slot)
         except (*PLC_IO_ERRORS, OpcUaError, ValueError) as exc:
@@ -215,6 +282,7 @@ class ConnectionMixin:
         self._recording_paused = False
         self._refresh_status_display()
         self._log(f"Verbunden mit {ip}, DB {db_path}")
+        self._log_connection_details()
         self._set_connecting_ui(False)
         self._set_connected_ui(True)
 
@@ -307,7 +375,16 @@ class ConnectionMixin:
         )
         threading.Thread(
             target=self._auto_reconnect_worker,
-            args=(ip, generation, attempt, self._get_plc_rack(), self._get_plc_slot()),
+            args=(
+                ip,
+                generation,
+                attempt,
+                self._get_plc_rack(),
+                self._get_plc_slot(),
+                self._get_opcua_security_config()
+                if self.plc_backend.transport == PLC_TRANSPORT_OPCUA
+                else None,
+            ),
             daemon=True,
             name="PLCAutoReconnect",
         ).start()
@@ -319,6 +396,7 @@ class ConnectionMixin:
         attempt: int,
         plc_rack: int,
         plc_slot: int,
+        opcua_security: OpcUaSecurityConfig | None,
     ) -> None:
         ok = False
         err_text: str | None = None
@@ -332,7 +410,11 @@ class ConnectionMixin:
                     except PLC_IO_ERRORS:
                         pass
                     if self.plc_backend.transport == PLC_TRANSPORT_OPCUA:
-                        self.plc_backend.connect("", endpoint_url=ip)
+                        self.plc_backend.connect(
+                            "",
+                            endpoint_url=ip,
+                            security=opcua_security,
+                        )
                     else:
                         self.plc_backend.connect(ip, rack=plc_rack, slot=plc_slot)
                     ok = self.plc_backend.is_connected(None)
@@ -372,6 +454,7 @@ class ConnectionMixin:
             self._connection_lost = False
             self._update_connected_status()
             self._log(f"Wiederverbindung mit {self._plc_ip} erfolgreich.")
+            self._log_connection_details()
             self._set_connected_ui(True)
             return
 
@@ -539,7 +622,7 @@ class ConnectionMixin:
                 self._db_path,
                 self.plc_backend,
                 self._schema.read_length,
-                self._schema.items,
+                items_for_plc_read(self._schema),
                 self._schema,
                 self.stop_event,
                 self._plc_ip,

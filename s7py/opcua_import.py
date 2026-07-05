@@ -109,6 +109,24 @@ def format_opcua_connect_error(exc: BaseException, endpoint: str) -> str:
             "in s7py_db.json.\n\n"
             f"Details ({type_name}): {exc}"
         )
+    if any(
+        token in msg_lower
+        for token in (
+            "baduseraccessdenied",
+            "badidentitytokenrejected",
+            "badidentitytokeninvalid",
+            "user access denied",
+            "identity token",
+        )
+    ):
+        return (
+            f"OPC-UA-Anmeldung abgelehnt: {url}\n\n"
+            "Benutzername oder Passwort falsch, oder der Server erlaubt "
+            "Benutzer/Passwort auf dem gewaehlten Endpoint nicht.\n\n"
+            "Pruefen Sie in TIA Portal unter OPC UA → Benutzerauthentifizierung "
+            '„Benutzername und Kennwort aktivieren" und den angelegten Benutzer.\n\n'
+            f"Details ({type_name}): {exc}"
+        )
     if _looks_like_unreachable_server(exc):
         return (
             f"OPC-UA-Server nicht erreichbar: {url}\n\n"

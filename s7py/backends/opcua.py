@@ -10,7 +10,7 @@ from typing import Optional
 from s7py.backends.base import AbstractPlcBackend, PLC_TRANSPORT_OPCUA
 from s7py.constants import PLC_READ_BASE_DELAY_S, PLC_READ_MAX_ATTEMPTS
 from s7py.log import log_msg
-from s7py.opcua_connect import connect_opcua_sync_client
+from s7py.opcua_connect import OpcUaSecurityConfig, connect_opcua_sync_client
 from s7py.opcua_import import (
     OpcUaConfigError,
     OpcUaError,
@@ -31,6 +31,8 @@ class OpcUaBackend(AbstractPlcBackend):
         self._endpoint_url = ""
         self._connected = False
         self._client = None
+        self._connection_info = None
+        self._security: OpcUaSecurityConfig | None = None
 
     @property
     def transport(self) -> str:
@@ -47,6 +49,7 @@ class OpcUaBackend(AbstractPlcBackend):
         rack: int = 0,
         slot: int = 0,
         endpoint_url: str = "",
+        security: OpcUaSecurityConfig | None = None,
     ) -> None:
         del address, rack, slot
         url = (endpoint_url or "").strip()
@@ -54,13 +57,18 @@ class OpcUaBackend(AbstractPlcBackend):
             raise ValueError("OPC-UA-Endpoint fehlt (z. B. opc.tcp://192.168.0.10:4840).")
 
         self.disconnect()
+        sec = security if security is not None else self._security
         try:
-            self._client = connect_opcua_sync_client(url)
+            self._client, self._connection_info = connect_opcua_sync_client(
+                url, security=sec
+            )
         except Exception as exc:
             self._client = None
+            self._connection_info = None
             self._connected = False
             raise wrap_opcua_connect_error(exc, url) from exc
         self._endpoint_url = url
+        self._security = sec
         self._connected = True
 
     def disconnect(self) -> None:
@@ -70,6 +78,7 @@ class OpcUaBackend(AbstractPlcBackend):
             except Exception:
                 pass
         self._client = None
+        self._connection_info = None
         self._connected = False
 
     def is_connected(self, lock: Optional[threading.RLock] = None) -> bool:
@@ -151,3 +160,17 @@ class OpcUaBackend(AbstractPlcBackend):
         del address, rack, slot, db_number
         url = endpoint_url or self._endpoint_url or "?"
         return f"OPC UA: {url}"
+
+    def connection_log_detail(
+        self,
+        address: str,
+        *,
+        rack: int = 0,
+        slot: int = 0,
+        db_number: int = 0,
+        endpoint_url: str = "",
+    ) -> str:
+        del address, rack, slot, db_number, endpoint_url
+        if self._connection_info is None:
+            return ""
+        return self._connection_info.log_message()

@@ -59,6 +59,16 @@ class PlcBackend(Protocol):
         endpoint_url: str = "",
     ) -> str: ...
 
+    def connection_log_detail(
+        self,
+        address: str,
+        *,
+        rack: int = 0,
+        slot: int = 0,
+        db_number: int = 0,
+        endpoint_url: str = "",
+    ) -> str: ...
+
 
 class AbstractPlcBackend(ABC):
     """Basisklasse mit gemeinsamer Struktur fuer konkrete Backends."""
@@ -111,3 +121,15 @@ class AbstractPlcBackend(ABC):
         db_number: int = 0,
         endpoint_url: str = "",
     ) -> str: ...
+
+    def connection_log_detail(
+        self,
+        address: str,
+        *,
+        rack: int = 0,
+        slot: int = 0,
+        db_number: int = 0,
+        endpoint_url: str = "",
+    ) -> str:
+        del address, rack, slot, db_number, endpoint_url
+        return ""

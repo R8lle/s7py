@@ -18,6 +18,15 @@ OPCUA_DATATYPES: tuple[str, ...] = (
     "Byte",
 )
 
+SNAP7_DATATYPES: tuple[str, ...] = (
+    "Real",
+    "DWord",
+    "Int",
+    "Bool",
+    "Byte",
+    "String",
+)
+
 S7_ALIGNMENT: dict[str, int] = {
     "BOOL": 1,
     "BYTE": 1,
@@ -403,6 +412,84 @@ def _derive_plot_and_live_fields(sqlite_columns: list[str]) -> tuple[list[str], 
     if not live_fields:
         live_fields = sqlite_columns[:4]
     return [plot_1, plot_2], live_fields
+
+
+def items_for_plc_read(schema: PlcDbSchema) -> list[DbItem]:
+    """Snap7-Felder, die aus dem DB-Block geparst werden (aktiv + Count-Feld)."""
+    names: set[str] = set()
+    result: list[DbItem] = []
+    for item in schema.items:
+        if item.store or item.name == schema.count_field:
+            if item.name not in names:
+                result.append(item)
+                names.add(item.name)
+    return result
+
+
+def _validate_snap7_bytebit(bytebit: str, *, field_name: str) -> None:
+    parts = (bytebit or "").strip().split(".")
+    if len(parts) != 2:
+        raise ValueError(
+            f"Feld „{field_name}“: Byte/Bit muss „Offset.Bit“ sein (z. B. 4.0)."
+        )
+    try:
+        int(parts[0])
+        int(parts[1])
+    except ValueError as exc:
+        raise ValueError(
+            f"Feld „{field_name}“: ungueltiges Byte/Bit „{bytebit}“."
+        ) from exc
+
+
+def schema_from_snap7_manual(
+    items: list[DbItem],
+    *,
+    count_field: str,
+    source_file: str = "",
+    block_name: str = "",
+    db_number: int = PLC_DB_NUMBER,
+) -> PlcDbSchema:
+    """Erzeugt ein Snap7-Schema aus manuell gepflegten oder importierten Feldern."""
+    from s7py.plc import get_db_size
+
+    if not items:
+        raise ValueError("Mindestens ein Datenpunkt erforderlich.")
+
+    names = [it.name.strip() for it in items]
+    if any(not name for name in names):
+        raise ValueError("Jeder Datenpunkt braucht einen Namen.")
+    if len(set(names)) != len(names):
+        raise ValueError("Namen muessen eindeutig sein.")
+
+    for it in items:
+        if it.datatype not in SNAP7_DATATYPES:
+            raise ValueError(f"Unbekannter Datentyp: {it.datatype}")
+        _validate_snap7_bytebit(it.bytebit, field_name=it.name)
+
+    if count_field not in names:
+        raise ValueError(f"Count-Feld „{count_field}“ fehlt in der Liste.")
+
+    sqlite_columns = [it.name for it in items if it.store]
+    if not sqlite_columns:
+        raise ValueError("Mindestens ein Datenpunkt als aktiv markieren.")
+
+    read_length = get_db_size(items)
+    plot_fields, live_fields = _derive_plot_and_live_fields(sqlite_columns)
+    layout = "\n".join(
+        f"{it.name}\t{it.datatype}\t{it.bytebit}" for it in items
+    )
+    return PlcDbSchema(
+        source_file=source_file,
+        block_name=block_name or "Snap7 manuell",
+        db_number=db_number,
+        layout=layout,
+        items=items,
+        read_length=read_length,
+        count_field=count_field,
+        plot_fields=plot_fields,
+        live_fields=live_fields,
+        sqlite_columns=sqlite_columns,
+    )
 
 
 def schema_from_opcua_manual(

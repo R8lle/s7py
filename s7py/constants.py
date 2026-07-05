@@ -80,6 +80,9 @@ PLC_IO_ERRORS = (S7Error, OSError, TimeoutError, ConnectionError)
 
 DEFAULT_DATABASE = str(APP_DIR / "s7py.db")
 DB_CONFIG_PATH = str(APP_DIR / "s7py_db.json")
+LAST_DATABASE_KEY = "last_database"
+PLC_STRUCTURE_KEY_SNAP7 = "plc_structure_snap7"
+PLC_STRUCTURE_KEY_OPCUA = "plc_structure_opcua"
 
 PLOT_REFRESH_MS = 1000
 DEFAULT_PLOT_REFRESH_MS = PLOT_REFRESH_MS

@@ -1,6 +1,6 @@
 {
   "last_database": "s7py.db",
-  "plc_structure": {
+  "plc_structure_snap7": {
     "source_file": "SnapDB.db",
     "block_name": "SnapDB",
     "db_number": 30,
@@ -78,7 +78,28 @@
       "DB_String"
     ]
   },
+  "plc_structure_opcua": {
+    "block_name": "OPC UA manuell",
+    "db_number": 30,
+    "read_length": 0,
+    "count_field": "Count",
+    "items": [],
+    "plot_fields": [
+      "Temperature",
+      "DistanceOverAll"
+    ],
+    "live_fields": [
+      "Count",
+      "Temperature",
+      "DistanceOverAll",
+      "MotorCurrent"
+    ],
+    "sqlite_columns": []
+  },
   "poll_interval_s": 0.1,
+  "plc_transport": "snap7",
+  "opcua_endpoint": "opc.tcp://192.168.0.10:4840",
+  "opcua_username": "",
   "auto_reconnect": true,
   "plc_rack": 0,
   "plc_slot": 0,

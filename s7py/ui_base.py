@@ -73,6 +73,8 @@ class S7PyAppProtocol(Protocol):
     var_ip: tk.StringVar
     var_plc_transport: tk.StringVar
     var_opcua_endpoint: tk.StringVar
+    var_opcua_username: tk.StringVar
+    var_opcua_password: tk.StringVar
     var_db: tk.StringVar
     var_poll_interval_ms: tk.IntVar
     var_plc_rack: tk.IntVar
@@ -97,6 +99,9 @@ class S7PyAppProtocol(Protocol):
     btn_db_table: ttk.Button
     entry_ip: ttk.Entry
     entry_opcua_endpoint: ttk.Entry
+    entry_opcua_username: ttk.Entry
+    entry_opcua_password: ttk.Entry
+    opcua_auth_row: ttk.Frame
     cmb_plc_transport: ttk.Combobox
     lbl_ip: ttk.Label
     lbl_opcua_endpoint: ttk.Label
@@ -144,6 +149,7 @@ class S7PyAppProtocol(Protocol):
     def _update_marker_visibility(self, n_points: int) -> None: ...
     def _reset_live_labels(self) -> None: ...
     def _get_plc_transport(self) -> str: ...
+    def _resolve_active_db_path(self) -> str: ...
     def _get_opcua_endpoint(self) -> str: ...
     def _get_connection_target(self) -> str: ...
     def _ensure_plc_backend(self) -> None: ...

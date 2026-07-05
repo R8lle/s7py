@@ -15,6 +15,7 @@ from s7py.constants import (
     DEFAULT_DATABASE,
     DEFAULT_PLOT_REFRESH_MS,
     DEFAULT_POLL_INTERVAL_S,
+    LAST_DATABASE_KEY,
     MAX_PLOT_REFRESH_MS,
     MAX_POLL_INTERVAL_S,
     MIN_PLOT_REFRESH_MS,
@@ -22,6 +23,10 @@ from s7py.constants import (
     PLC_DB_NUMBER,
     PLC_RACK,
     PLC_SLOT,
+    PLC_STRUCTURE_KEY_OPCUA,
+    PLC_STRUCTURE_KEY_SNAP7,
+    PLC_TRANSPORT_OPCUA,
+    PLC_TRANSPORT_SNAP7,
     SQLITE_WRITE_BASE_DELAY_S,
     SQLITE_WRITE_MAX_ATTEMPTS,
 )
@@ -37,9 +42,34 @@ from s7py.schema import (
 )
 
 
+def normalize_db_path(path: str) -> str:
+    """Bereinigt SQLite-Pfade: doppelte .db-Endungen entfernen (z. B. foo.db.db)."""
+    raw = (path or "").strip()
+    if not raw:
+        return ""
+    p = Path(raw)
+    name = p.name
+    if not name:
+        return raw
+    lower = name.lower()
+    while lower.endswith(".db.db"):
+        name = name[:-3]
+        lower = name.lower()
+    for suffix in (".sqlite3", ".sqlite"):
+        if lower.endswith(f"{suffix}.db"):
+            name = name[: -len(".db")]
+            lower = name.lower()
+            break
+    if name == p.name:
+        return raw
+    if len(p.parts) > 1:
+        return str(p.parent / name)
+    return name
+
+
 def resolve_db_path(path: str) -> str:
     """Macht DB-Pfade unabhaengig vom aktuellen Arbeitsverzeichnis."""
-    path = path.strip()
+    path = normalize_db_path(path)
     if not path:
         return DEFAULT_DATABASE
     candidate = Path(path)
@@ -88,6 +118,28 @@ def load_app_config() -> dict:
         with open(DB_CONFIG_PATH, encoding="utf-8") as fh:
             data = json.load(fh)
         if isinstance(data, dict):
+            legacy_db = str(data.get(LAST_DATABASE_KEY, "") or "").strip()
+            had_unified_db = bool(legacy_db)
+            had_snap7_schema = isinstance(data.get(PLC_STRUCTURE_KEY_SNAP7), dict)
+            had_opcua_schema = isinstance(data.get(PLC_STRUCTURE_KEY_OPCUA), dict)
+            legacy_schema = data.get("plc_structure")
+            _migrate_legacy_db_config(data)
+            _migrate_legacy_schema_config(data)
+            _migrate_last_database_path(data)
+            from s7py.credential_store import migrate_plaintext_secrets
+
+            secrets_migrated = migrate_plaintext_secrets(data)
+            if (not had_unified_db and str(data.get(LAST_DATABASE_KEY, "") or "").strip()) or (
+                isinstance(legacy_schema, dict)
+                and (
+                    (not had_snap7_schema and isinstance(data.get(PLC_STRUCTURE_KEY_SNAP7), dict))
+                    or (
+                        not had_opcua_schema
+                        and isinstance(data.get(PLC_STRUCTURE_KEY_OPCUA), dict)
+                    )
+                )
+            ) or normalize_db_path(legacy_db) != legacy_db or secrets_migrated:
+                save_app_config(data)
             return data
     except (OSError, json.JSONDecodeError, TypeError, AttributeError):
         pass
@@ -102,11 +154,54 @@ def save_app_config(config: dict) -> None:
         pass
 
 
-def schema_from_config(config: dict) -> PlcDbSchema:
-    plc = config.get("plc_structure")
-    if not isinstance(plc, dict):
-        return default_plc_schema()
+def _plc_structure_config_key(transport: str) -> str:
+    if normalize_plc_transport(transport) == PLC_TRANSPORT_OPCUA:
+        return PLC_STRUCTURE_KEY_OPCUA
+    return PLC_STRUCTURE_KEY_SNAP7
 
+
+def _plc_schema_dict_from_items(plc: dict, items: list[DbItem]) -> dict:
+    layout = str(plc.get("layout", "")).strip()
+    sqlite_columns = plc.get("sqlite_columns")
+    if not sqlite_columns:
+        sqlite_columns = [it.name for it in items if it.store]
+    if "read_length" in plc:
+        read_length = int(plc.get("read_length") or 0)
+    elif is_opcua_schema_items(items):
+        read_length = 0
+    else:
+        read_length = get_db_size(items)
+    return {
+        "source_file": str(plc.get("source_file", "") or ""),
+        "block_name": str(plc.get("block_name", "")),
+        "db_number": int(plc.get("db_number", PLC_DB_NUMBER) or PLC_DB_NUMBER),
+        "layout": layout
+        or "\n".join(f"{it.name}\t{it.datatype}\t{it.bytebit}" for it in items),
+        "items": plc.get("items") if plc.get("items") else [it.to_dict() for it in items],
+        "read_length": read_length,
+        "count_field": str(plc.get("count_field", "Count")),
+        "plot_fields": list(plc.get("plot_fields") or ["Temperature", "DistanceOverAll"]),
+        "live_fields": [str(name) for name in (plc.get("live_fields") or sqlite_columns[:4])],
+        "sqlite_columns": [str(name) for name in sqlite_columns],
+    }
+
+
+def _plc_schema_dict_from_schema(schema: PlcDbSchema) -> dict:
+    return {
+        "source_file": _path_for_storage(schema.source_file) if schema.source_file else "",
+        "block_name": schema.block_name,
+        "db_number": schema.db_number,
+        "layout": schema.layout,
+        "items": [it.to_dict() for it in schema.items],
+        "read_length": schema.read_length,
+        "count_field": schema.count_field,
+        "plot_fields": list(schema.plot_fields),
+        "live_fields": schema.live_fields,
+        "sqlite_columns": schema.sqlite_columns,
+    }
+
+
+def _schema_from_plc_dict(plc: dict) -> PlcDbSchema:
     layout = str(plc.get("layout", "")).strip()
     items_raw = plc.get("items")
     if not items_raw and layout:
@@ -150,40 +245,111 @@ def schema_from_config(config: dict) -> PlcDbSchema:
     )
 
 
-def save_plc_schema(schema: PlcDbSchema, *, last_database: Optional[str] = None) -> None:
+def _migrate_legacy_schema_config(config: dict) -> None:
+    """Altes plc_structure nach Snap7/OPC UA aufteilen."""
+    legacy = config.get("plc_structure")
+    if not isinstance(legacy, dict):
+        return
+    items_raw = legacy.get("items")
+    layout = str(legacy.get("layout", "")).strip()
+    if items_raw:
+        items = coerce_db_items(items_raw)
+    elif layout:
+        items = parse_db_layout(layout)
+    else:
+        return
+    target_key = (
+        PLC_STRUCTURE_KEY_OPCUA
+        if is_opcua_schema_items(items)
+        else PLC_STRUCTURE_KEY_SNAP7
+    )
+    if not isinstance(config.get(target_key), dict):
+        config[target_key] = _plc_schema_dict_from_items(legacy, items)
+
+
+def schema_from_config(config: dict, transport: str | None = None) -> PlcDbSchema:
+    """Laedt die SPS-Struktur fuer Snap7 oder OPC UA aus der Konfiguration."""
+    _migrate_legacy_schema_config(config)
+    transport = normalize_plc_transport(transport or config.get("plc_transport"))
+    plc = config.get(_plc_structure_config_key(transport))
+    if not isinstance(plc, dict):
+        return default_plc_schema()
+    return _schema_from_plc_dict(plc)
+
+
+def default_db_path_for_transport(transport: str | None = None) -> str:
+    """Standard-SQLite-Datei (Snap7 und OPC UA nutzen dieselbe DB)."""
+    del transport
+    return DEFAULT_DATABASE
+
+
+def _migrate_last_database_path(config: dict) -> None:
+    """Doppelte .db-Endung in last_database bereinigen."""
+    path = str(config.get(LAST_DATABASE_KEY, "") or "").strip()
+    if not path:
+        return
+    fixed = normalize_db_path(path)
+    if fixed != path:
+        config[LAST_DATABASE_KEY] = _path_for_storage(fixed)
+
+
+def _migrate_legacy_db_config(config: dict) -> None:
+    """Alte last_database_*-Schluessel auf last_database vereinheitlichen."""
+    unified = str(config.get(LAST_DATABASE_KEY, "") or "").strip()
+    if unified:
+        return
+    for legacy_key in (
+        "last_database_snap7",
+        "last_database",
+        "last_database_opcua",
+    ):
+        legacy = str(config.get(legacy_key, "") or "").strip()
+        if legacy:
+            config[LAST_DATABASE_KEY] = legacy
+            return
+
+
+def save_plc_schema(
+    schema: PlcDbSchema,
+    *,
+    last_database: Optional[str] = None,
+    transport: str | None = None,
+) -> None:
     config = load_app_config()
+    _migrate_legacy_db_config(config)
+    _migrate_legacy_schema_config(config)
+    if transport is None:
+        transport = (
+            PLC_TRANSPORT_OPCUA
+            if is_opcua_schema_items(schema.items)
+            else PLC_TRANSPORT_SNAP7
+        )
     if last_database:
-        config["last_database"] = _path_for_storage(last_database)
-    config["plc_structure"] = {
-        "source_file": _path_for_storage(schema.source_file) if schema.source_file else "",
-        "block_name": schema.block_name,
-        "db_number": schema.db_number,
-        "layout": schema.layout,
-        "items": [it.to_dict() for it in schema.items],
-        "read_length": schema.read_length,
-        "count_field": schema.count_field,
-        "plot_fields": list(schema.plot_fields),
-        "live_fields": schema.live_fields,
-        "sqlite_columns": schema.sqlite_columns,
-    }
+        config[LAST_DATABASE_KEY] = _path_for_storage(last_database)
+    config[_plc_structure_config_key(transport)] = _plc_schema_dict_from_schema(schema)
     save_app_config(config)
 
 
-def load_last_db_path() -> str:
-    """Letzten SQLite-Pfad aus der lokalen Konfiguration laden."""
-    path = str(load_app_config().get("last_database", "")).strip()
+def load_last_db_path(transport: str | None = None) -> str:
+    """Letzten SQLite-Pfad aus der Konfiguration laden."""
+    del transport
+    config = load_app_config()
+    _migrate_legacy_db_config(config)
+    path = str(config.get(LAST_DATABASE_KEY, "") or "").strip()
     if path:
         return resolve_db_path(path)
     return DEFAULT_DATABASE
 
 
-def save_last_db_path(path: str) -> None:
-    """Letzten SQLite-Pfad fuer den naechsten Programmstart speichern."""
+def save_last_db_path(path: str, transport: str | None = None) -> None:
+    """SQLite-Pfad fuer den naechsten Programmstart speichern."""
+    del transport
     path = resolve_db_path(path.strip())
     if not path:
         return
     config = load_app_config()
-    config["last_database"] = _path_for_storage(path)
+    _migrate_legacy_db_config(config)
+    config[LAST_DATABASE_KEY] = _path_for_storage(path)
     save_app_config(config)
 
 
@@ -236,13 +402,108 @@ def save_opcua_endpoint(url: str) -> None:
 
 
 def load_opcua_security_config() -> "OpcUaSecurityConfig":
+    from s7py.credential_store import (
+        OPCUA_CLIENT_KEY_PASSWORD_ENC_KEY,
+        OPCUA_CLIENT_KEY_PASSWORD_PLAIN_KEY,
+        OPCUA_PASSWORD_ENC_KEY,
+        OPCUA_PASSWORD_PLAIN_KEY,
+        load_stored_secret,
+    )
     from s7py.opcua_connect import OpcUaSecurityConfig
 
     cfg = load_app_config()
     return OpcUaSecurityConfig(
         client_cert=str(cfg.get("opcua_client_cert", "") or "").strip(),
         client_key=str(cfg.get("opcua_client_key", "") or "").strip(),
-        client_key_password=str(cfg.get("opcua_client_key_password", "") or "").strip(),
+        client_key_password=load_stored_secret(
+            cfg,
+            plain_key=OPCUA_CLIENT_KEY_PASSWORD_PLAIN_KEY,
+            enc_key=OPCUA_CLIENT_KEY_PASSWORD_ENC_KEY,
+        ),
+        username=str(cfg.get("opcua_username", "") or "").strip(),
+        password=load_stored_secret(
+            cfg,
+            plain_key=OPCUA_PASSWORD_PLAIN_KEY,
+            enc_key=OPCUA_PASSWORD_ENC_KEY,
+        ),
+    )
+
+
+def load_opcua_username() -> str:
+    return str(load_app_config().get("opcua_username", "") or "").strip()
+
+
+def load_opcua_password() -> str:
+    from s7py.credential_store import (
+        OPCUA_PASSWORD_ENC_KEY,
+        OPCUA_PASSWORD_PLAIN_KEY,
+        load_stored_secret,
+    )
+
+    return load_stored_secret(
+        load_app_config(),
+        plain_key=OPCUA_PASSWORD_PLAIN_KEY,
+        enc_key=OPCUA_PASSWORD_ENC_KEY,
+    )
+
+
+def save_opcua_credentials(username: str, password: str) -> None:
+    from s7py.credential_store import (
+        OPCUA_PASSWORD_ENC_KEY,
+        OPCUA_PASSWORD_PLAIN_KEY,
+        store_secret_in_config,
+    )
+
+    config = load_app_config()
+    user = (username or "").strip()
+    if user:
+        config["opcua_username"] = user
+        store_secret_in_config(
+            config,
+            plain_key=OPCUA_PASSWORD_PLAIN_KEY,
+            enc_key=OPCUA_PASSWORD_ENC_KEY,
+            value=password or "",
+        )
+    else:
+        config.pop("opcua_username", None)
+        store_secret_in_config(
+            config,
+            plain_key=OPCUA_PASSWORD_PLAIN_KEY,
+            enc_key=OPCUA_PASSWORD_ENC_KEY,
+            value="",
+        )
+    save_app_config(config)
+
+
+def merge_opcua_security_config(
+    *,
+    username: str = "",
+    password: str | None = None,
+) -> "OpcUaSecurityConfig":
+    """Zertifikate aus der Config; Benutzer/Passwort nur wenn in der UI gesetzt.
+
+    Leerer Benutzername in der UI bedeutet: keine Credentials — auch nicht
+    aus gespeicherten JSON-Werten zurueckfallen.
+    """
+    from s7py.opcua_connect import OpcUaSecurityConfig
+
+    base = load_opcua_security_config()
+    user = (username or "").strip()
+    if user:
+        pwd = password if password is not None else base.password
+        return OpcUaSecurityConfig(
+            client_cert=base.client_cert,
+            client_key=base.client_key,
+            client_key_password=base.client_key_password,
+            username=user,
+            password=pwd or "",
+        )
+    return OpcUaSecurityConfig(
+        client_cert=base.client_cert,
+        client_key=base.client_key,
+        client_key_password=base.client_key_password,
+        username="",
+        password="",
     )
 
 
@@ -372,11 +633,16 @@ def normalize_plc_db_number(value: object) -> int:
 
 def load_plc_db_number() -> int:
     config = load_app_config()
+    _migrate_legacy_schema_config(config)
     if "plc_db_number" in config:
         return normalize_plc_db_number(config["plc_db_number"])
-    plc = config.get("plc_structure")
+    transport = normalize_plc_transport(config.get("plc_transport"))
+    plc = config.get(_plc_structure_config_key(transport))
     if isinstance(plc, dict) and plc.get("db_number") is not None:
         return normalize_plc_db_number(plc["db_number"])
+    legacy = config.get("plc_structure")
+    if isinstance(legacy, dict) and legacy.get("db_number") is not None:
+        return normalize_plc_db_number(legacy["db_number"])
     return PLC_DB_NUMBER
 
 
@@ -498,6 +764,18 @@ def sqlite_type_for_item(item: DbItem) -> str:
     return "integer"
 
 
+def ensure_projects_table(conn: sqlite3.Connection, schema: PlcDbSchema) -> None:
+    """Legt ``projects`` an, falls die Tabelle in einer bestehenden DB fehlt."""
+    cursor = conn.cursor()
+    if table_columns(cursor, "projects"):
+        return
+    create_table(cursor, build_create_projects_sql(schema))
+    try:
+        conn.commit()
+    except Error as exc:
+        log_msg(f"commit after create projects table: {exc}")
+
+
 def build_create_projects_sql(schema: PlcDbSchema) -> str:
     columns = ["id integer PRIMARY KEY", "time text"]
     for name in schema.sqlite_columns:
@@ -514,7 +792,6 @@ def create_database(database: str, schema: Optional[PlcDbSchema] = None) -> bool
     """
     if schema is None:
         schema = default_plc_schema()
-    sql_create_projects_table = build_create_projects_sql(schema)
 
     parent = os.path.dirname(os.path.abspath(database))
     if parent:
@@ -527,11 +804,10 @@ def create_database(database: str, schema: Optional[PlcDbSchema] = None) -> bool
     conn = create_connection(database)
     if conn is not None:
         try:
-            create_table(conn.cursor(), sql_create_projects_table)
-            try:
-                conn.commit()
-            except Error as e:
-                log_msg(f"commit after create_table error: {e}")
+            ensure_projects_table(conn, schema)
+            if not table_columns(conn.cursor(), "projects"):
+                log_msg("Error! projects table could not be created.")
+                return False
             migrate_database(conn, schema)
             return os.path.isfile(database)
         finally:
@@ -596,6 +872,9 @@ def migrate_database(
 
     Mit ``schema`` werden zusaetzlich fehlende Spalten angelegt.
     """
+    if schema is not None:
+        ensure_projects_table(conn, schema)
+
     try:
         cursor = conn.cursor()
         columns = table_columns(cursor, "projects")

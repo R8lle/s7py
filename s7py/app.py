@@ -5,7 +5,8 @@ Die umfangreiche Logik ist thematisch auf Mixins verteilt:
 * :class:`s7py.ui_plot.PlotMixin` — Diagramm-Aufbau und -Aktualisierung
 * :class:`s7py.ui_connection.ConnectionMixin` — SPS-Verbindung/Aufzeichnung
 * :class:`s7py.ui_database.DatabaseMixin` — SQLite-Anbindung und CSV-Export
-* :class:`s7py.ui_schema.SchemaImportMixin` — Schema anwenden / TIA-Import
+* :class:`s7py.ui_schema.SchemaImportMixin` — Schema anwenden
+* :class:`s7py.ui_snap7_schema.Snap7SchemaMixin` — Snap7-Variablen-Editor
 
 Dieses Modul enthaelt nur noch den Fenster-Aufbau (Menue, Bedienleiste,
 Meldungsbox), das Logging, die Anfangsgeometrie und den Lebenszyklus.
@@ -38,6 +39,7 @@ from s7py.constants import (
     PLOT_MAX_ROWS_DEFAULT,
     MIN_PLOT_REFRESH_MS,
     MAX_PLOT_REFRESH_MS,
+    PLC_TRANSPORT_OPCUA,
     PLC_TRANSPORT_SNAP7,
     RECORDING_TICK_MS,
     RECORDING_RESUME_LABEL,
@@ -53,6 +55,8 @@ from s7py.db import (
     load_last_db_path,
     load_last_plc_ip,
     load_opcua_endpoint,
+    load_opcua_password,
+    load_opcua_username,
     load_plc_db_number,
     load_plc_rack,
     load_plc_slot,
@@ -62,6 +66,7 @@ from s7py.db import (
     poll_interval_ms_from_s,
     resolve_db_path,
     save_auto_reconnect,
+    save_opcua_credentials,
     save_plc_db_number,
     save_plc_rack_slot,
     save_plc_schema,
@@ -76,6 +81,7 @@ from s7py.ui_database import DatabaseMixin
 from s7py.ui_opcua_schema import OpcUaSchemaMixin
 from s7py.ui_plot import PlotMixin
 from s7py.ui_schema import SchemaImportMixin
+from s7py.ui_snap7_schema import Snap7SchemaMixin
 from s7py.ui_flow import FlowFrame
 
 
@@ -84,6 +90,7 @@ class S7PyApp(
     ConnectionMixin,
     DatabaseMixin,
     SchemaImportMixin,
+    Snap7SchemaMixin,
     OpcUaSchemaMixin,
     tk.Tk,
 ):
@@ -98,7 +105,7 @@ class S7PyApp(
         self.conn_read = None
         self.cursor_read = None
         self._app_config = load_app_config()
-        self._schema = schema_from_config(self._app_config)
+        self._schema = schema_from_config(self._app_config, transport=load_plc_transport())
         self.items: list[DbItem] = self._schema.items
         self.DBlength = self._schema.read_length
         self._db_path = load_last_db_path()
@@ -295,6 +302,9 @@ class S7PyApp(
         self.spin_plc_db_number["state"] = tk.DISABLED if connected else tk.NORMAL
         self.cmb_plc_transport["state"] = "disabled" if connected else "readonly"
         self.entry_opcua_endpoint["state"] = tk.DISABLED if connected else tk.NORMAL
+        if hasattr(self, "entry_opcua_username"):
+            self.entry_opcua_username["state"] = tk.DISABLED if connected else tk.NORMAL
+            self.entry_opcua_password["state"] = tk.DISABLED if connected else tk.NORMAL
         self._sync_transport_widgets()
 
     def _sync_transport_widgets(self):
@@ -310,13 +320,17 @@ class S7PyApp(
             self.entry_ip.pack(side=tk.LEFT, padx=(0, 12))
             self.lbl_opcua_endpoint.pack_forget()
             self.entry_opcua_endpoint.pack_forget()
+            self.opcua_auth_row.grid_remove()
             self.entry_ip["state"] = tk.DISABLED if connected else tk.NORMAL
         else:
             self.lbl_ip.pack_forget()
             self.entry_ip.pack_forget()
             self.lbl_opcua_endpoint.pack(side=tk.LEFT, padx=(0, 4))
             self.entry_opcua_endpoint.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            self.opcua_auth_row.grid()
             self.entry_opcua_endpoint["state"] = opc_state
+            self.entry_opcua_username["state"] = opc_state
+            self.entry_opcua_password["state"] = opc_state
 
         self.spin_plc_rack["state"] = snap7_state
         self.spin_plc_slot["state"] = snap7_state
@@ -340,6 +354,9 @@ class S7PyApp(
         self.spin_plc_db_number["state"] = state
         self.cmb_plc_transport["state"] = "disabled"
         self.entry_opcua_endpoint["state"] = state
+        if hasattr(self, "entry_opcua_username"):
+            self.entry_opcua_username["state"] = state
+            self.entry_opcua_password["state"] = state
 
     def _build_ui(self):
         self._build_menu()
@@ -371,8 +388,8 @@ class S7PyApp(
             )
         else:
             self._file_menu.add_command(
-                label="SPS-Datenbaustein importieren...",
-                command=self._on_import_plc_db,
+                label="Snap7 Variablen...",
+                command=self._on_edit_snap7_variables,
             )
         self._file_menu.add_command(
             label="Diagramm als PNG speichern...",
@@ -421,35 +438,52 @@ class S7PyApp(
             transport_row, textvariable=self.var_opcua_endpoint, width=36
         )
 
-        ttk.Label(top, text="Rack:").grid(row=1, column=0, sticky=tk.W, padx=(0, 4))
+        self.opcua_auth_row = ttk.Frame(top)
+        self.opcua_auth_row.grid(row=1, column=0, columnspan=12, sticky=tk.EW, pady=(4, 0))
+        ttk.Label(self.opcua_auth_row, text="Benutzer:").pack(side=tk.LEFT, padx=(0, 4))
+        self.var_opcua_username = tk.StringVar(value=load_opcua_username())
+        self.entry_opcua_username = ttk.Entry(
+            self.opcua_auth_row, textvariable=self.var_opcua_username, width=16
+        )
+        self.entry_opcua_username.pack(side=tk.LEFT, padx=(0, 12))
+        self.var_opcua_username.trace_add("write", self._on_opcua_username_changed)
+        self.entry_opcua_username.bind(
+            "<FocusOut>", lambda _e: self._persist_opcua_credentials_from_ui()
+        )
+        ttk.Label(self.opcua_auth_row, text="Passwort:").pack(side=tk.LEFT, padx=(0, 4))
+        self.var_opcua_password = tk.StringVar(value=load_opcua_password())
+        self.entry_opcua_password = ttk.Entry(
+            self.opcua_auth_row, textvariable=self.var_opcua_password, width=16, show="*"
+        )
+        self.entry_opcua_password.pack(side=tk.LEFT)
+        self.entry_opcua_password.bind("<FocusOut>", lambda _e: self._persist_opcua_credentials_from_ui())
+
+        plc_params_row = ttk.Frame(top)
+        plc_params_row.grid(row=2, column=0, columnspan=12, sticky=tk.W)
+        ttk.Label(plc_params_row, text="Rack:").pack(side=tk.LEFT, padx=(0, 4))
         self.var_plc_rack = tk.IntVar(value=load_plc_rack())
         self.spin_plc_rack = ttk.Spinbox(
-            top, from_=0, to=7, width=4, textvariable=self.var_plc_rack
+            plc_params_row, from_=0, to=7, width=4, textvariable=self.var_plc_rack
         )
-        self.spin_plc_rack.grid(row=1, column=1, sticky=tk.W)
-
-        ttk.Label(top, text="Slot:").grid(row=1, column=2, sticky=tk.W, padx=(8, 4))
+        self.spin_plc_rack.pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Label(plc_params_row, text="Slot:").pack(side=tk.LEFT, padx=(0, 4))
         self.var_plc_slot = tk.IntVar(value=load_plc_slot())
         self.spin_plc_slot = ttk.Spinbox(
-            top, from_=0, to=31, width=4, textvariable=self.var_plc_slot
+            plc_params_row, from_=0, to=31, width=4, textvariable=self.var_plc_slot
         )
-        self.spin_plc_slot.grid(row=1, column=3, sticky=tk.W)
-
-        ttk.Label(top, text="SPS-DB:").grid(row=1, column=4, sticky=tk.W, padx=(8, 4))
+        self.spin_plc_slot.pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Label(plc_params_row, text="SPS-DB:").pack(side=tk.LEFT, padx=(0, 4))
         self.var_plc_db_number = tk.IntVar(value=load_plc_db_number())
         self.spin_plc_db_number = ttk.Spinbox(
-            top, from_=1, to=65535, width=5, textvariable=self.var_plc_db_number
+            plc_params_row, from_=1, to=65535, width=5, textvariable=self.var_plc_db_number
         )
-        self.spin_plc_db_number.grid(row=1, column=5, sticky=tk.W)
-
-        ttk.Label(top, text="Abfrage (ms):").grid(
-            row=1, column=6, sticky=tk.W, padx=(12, 4)
-        )
+        self.spin_plc_db_number.pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Label(plc_params_row, text="Abfrage (ms):").pack(side=tk.LEFT, padx=(0, 4))
         self.var_poll_interval_ms = tk.IntVar(
             value=poll_interval_ms_from_s(load_poll_interval_s())
         )
         self.spin_poll_interval = ttk.Spinbox(
-            top,
+            plc_params_row,
             from_=int(MIN_POLL_INTERVAL_S * 1000),
             to=int(MAX_POLL_INTERVAL_S * 1000),
             increment=1,
@@ -461,25 +495,28 @@ class S7PyApp(
         self.spin_poll_interval.bind(
             "<FocusOut>", self._on_poll_interval_focus_out, add="+"
         )
-        self.spin_poll_interval.grid(row=1, column=7, sticky=tk.W)
+        self.spin_poll_interval.pack(side=tk.LEFT)
 
-        ttk.Label(top, text="SQLite-Datei:").grid(
-            row=2, column=0, sticky=tk.W, padx=(0, 4), pady=(6, 0)
+        sqlite_row = ttk.Frame(top)
+        sqlite_row.grid(row=3, column=0, columnspan=12, sticky=tk.EW, pady=(6, 0))
+        sqlite_row.columnconfigure(1, weight=1)
+        ttk.Label(sqlite_row, text="SQLite-Datei:").grid(
+            row=0, column=0, sticky=tk.W, padx=(0, 4)
         )
         self.var_db = tk.StringVar(value=self._db_path)
-        db_row = ttk.Frame(top)
-        db_row.grid(row=2, column=1, columnspan=11, sticky=tk.EW, pady=(6, 0))
+        db_row = ttk.Frame(sqlite_row)
+        db_row.grid(row=0, column=1, sticky=tk.EW)
         db_row.columnconfigure(0, weight=1)
         self.entry_db = ttk.Entry(db_row, textvariable=self.var_db, width=36)
         self.entry_db.grid(row=0, column=0, sticky=tk.EW)
+        self.entry_db.bind("<FocusOut>", self._on_db_path_focus_out)
         self.btn_browse_db = ttk.Button(
             db_row, text="Durchsuchen...", width=14, command=self._on_browse_db
         )
         self.btn_browse_db.grid(row=0, column=1, sticky=tk.E, padx=(6, 0))
-        top.columnconfigure(1, weight=1)
 
         btn_row = ttk.Frame(top)
-        btn_row.grid(row=3, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
+        btn_row.grid(row=4, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
         self.btn_connect = ttk.Button(btn_row, text="Verbinden", command=self._on_connect)
         self.btn_connect.pack(side=tk.LEFT, padx=(0, 6))
         self.btn_disconnect = ttk.Button(
@@ -520,7 +557,7 @@ class S7PyApp(
         self.btn_db_table.pack(side=tk.LEFT)
 
         live_f = ttk.LabelFrame(top, text="SPS (letzter Messpunkt)", padding=(8, 4))
-        live_f.grid(row=4, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
+        live_f.grid(row=5, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
         live_inner = ttk.Frame(live_f)
         live_inner.pack(fill=tk.X)
         live_specs = (
@@ -539,7 +576,7 @@ class S7PyApp(
 
         self.status_var = tk.StringVar(value="Nicht verbunden.")
         status_row = ttk.Frame(top)
-        status_row.grid(row=5, column=0, columnspan=12, sticky=tk.EW, pady=(6, 0))
+        status_row.grid(row=6, column=0, columnspan=12, sticky=tk.EW, pady=(6, 0))
         status_row.columnconfigure(0, weight=1)
         ttk.Label(status_row, textvariable=self.status_var).grid(
             row=0, column=0, sticky=tk.W
@@ -554,7 +591,7 @@ class S7PyApp(
         self.lbl_recording.grid(row=0, column=1, sticky=tk.E, padx=(8, 0))
 
         plot_opts = ttk.Frame(top)
-        plot_opts.grid(row=6, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
+        plot_opts.grid(row=7, column=0, columnspan=12, sticky=tk.EW, pady=(8, 0))
         ttk.Label(plot_opts, text="Diagramm:").pack(side=tk.LEFT, padx=(0, 4))
         ttk.Radiobutton(
             plot_opts,
@@ -591,7 +628,7 @@ class S7PyApp(
         self._sync_plot_scope_widgets()
 
         plot_field_row = ttk.Frame(top)
-        plot_field_row.grid(row=7, column=0, columnspan=12, sticky=tk.EW, pady=(4, 0))
+        plot_field_row.grid(row=8, column=0, columnspan=12, sticky=tk.EW, pady=(4, 0))
         ttk.Label(plot_field_row, text="Kurven:").pack(side=tk.LEFT, padx=(0, 6))
         self.plot_field_checks_frame = FlowFrame(plot_field_row, h_pad=8, v_pad=2)
         self.plot_field_checks_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -619,12 +656,15 @@ class S7PyApp(
         save_plc_schema(
             self._schema,
             last_database=resolve_db_path(self.var_db.get().strip() or self._db_path),
+            transport=self._get_plc_transport(),
         )
         save_poll_interval_s(self._get_poll_interval_s())
         save_plot_refresh_ms(int(self.var_plot_refresh_ms.get()))
         save_plc_rack_slot(self.var_plc_rack.get(), self.var_plc_slot.get())
         save_plc_db_number(self.var_plc_db_number.get())
         save_auto_reconnect(bool(self.var_auto_reconnect.get()))
+        if self._get_plc_transport() == PLC_TRANSPORT_OPCUA:
+            self._persist_opcua_credentials_from_ui()
         if self.write_thread is not None:
             self.write_thread.join(timeout=2)
         if self.conn_read is not None:

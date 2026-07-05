@@ -6,14 +6,15 @@ Gültig für TIA Portal (V17/V18/V19). Menübezeichnungen können je nach Sprach
 
 ---
 
-## Übersicht: zwei Wege
+## Übersicht: drei Wege
 
 | Weg | Aufwand | Einsatz |
 |-----|---------|---------|
-| **A — ohne Zertifikat** | gering | Test, Entwicklung |
+| **A — ohne Zertifikat, anonym** | gering | Test, Entwicklung |
+| **C — Benutzer/Passwort** | gering | Gast deaktiviert, Policy None |
 | **B — mit Zertifikat** | höher | Produktion, abgesicherte Anlage |
 
-Empfehlung: zuerst **Weg A** testen, danach bei Bedarf auf **Weg B** wechseln.
+Empfehlung: zuerst **Weg A** testen, bei Login-Pflicht **Weg C**, fuer Dauerbetrieb **Weg B**.
 
 ---
 
@@ -49,8 +50,9 @@ Empfehlung: zuerst **Weg A** testen, danach bei Bedarf auf **Weg B** wechseln.
 ## 3. Anonymen Zugriff erlauben
 
 1. Im selben OPC-UA-Bereich: **Benutzerauthentifizierung**
-2. **Anonym** aktivieren
-3. Benutzer/Passwort nur aktivieren, wenn die Anlage das verlangt
+2. **Anonym** aktivieren (Testbetrieb ohne Login)
+3. **Benutzername und Kennwort** nur aktivieren, wenn die Anlage Login verlangt
+   (siehe **Weg C**)
 
 ## 4. Projekt laden und SPS starten
 
@@ -87,6 +89,50 @@ In s7py: **Datei → OPC UA Variablen (manuell)...**
 
 - NodeIds eintragen oder pro Zeile **...** (Server durchsuchen) nutzen
 - Speichern
+
+---
+
+# Weg C: Benutzer und Passwort (ohne Client-Zertifikat)
+
+Fuer Anlagen, in denen **Gast/anonym deaktiviert** ist, aber **Security Policy „None"**
+erlaubt bleibt.
+
+## 1. TIA Portal
+
+1. CPU → **Eigenschaften** → **OPC UA** → **Server** → **Sicherheit**
+2. **SecurityPolicy „None"** aktivieren (wie Weg A, Schritt 2)
+3. Unter **Benutzerauthentifizierung**:
+   - **„Benutzername und Kennwort aktivieren"**
+   - optional **Gast/anonym deaktivieren**
+4. In **Benutzerverwaltung** Benutzer anlegen (Passwort gemaess TIA-Regeln)
+5. Projekt laden, SPS auf **RUN**
+
+## 2. s7py
+
+1. Protokoll **OPC UA** waehlen
+2. Endpoint: `opc.tcp://<IP>:4840`
+3. **Benutzer** und **Passwort** eintragen (werden in `s7py_db.json` gespeichert)
+4. **Verbinden**
+
+s7py ueberspringt bei gesetztem Benutzer den anonymen Schnellversuch und waehlt
+einen Server-Endpoint mit **UserName**-Token.
+
+Alternativ in `s7py_db.json` (nur Benutzername; Passwort ueber die GUI oder
+wird verschluesselt als `opcua_password_enc` gespeichert):
+
+```json
+{
+  "plc_transport": "opcua",
+  "opcua_endpoint": "opc.tcp://192.168.0.10:4840",
+  "opcua_username": "meinUser"
+}
+```
+
+Das OPC-UA-Passwort wird nicht im Klartext in der JSON abgelegt, sondern mit
+einem lokalen Schluessel in `s7py/.s7py_key` verschluesselt (`opcua_password_enc`).
+
+> Bei Policy „None" kann das Passwort unverschluesselt uebertragen werden (asyncua
+> warnt mit *Sending plain-text password*). Fuer Produktion: Weg B mit Zertifikat.
 
 ---
 
@@ -154,6 +200,7 @@ Bei gesichertem Endpoint wählt s7py automatisch einen passenden Server-Endpoint
 | `BadSecurityPolicyRejected` | Policy „None“ nicht erlaubt | Weg A Schritt 2, oder Weg B mit Zertifikat |
 | `Connection refused` | Server aus / falscher Port | SPS RUN, Port 4840, Firewall prüfen |
 | Verbindung OK, keine Werte | Keine NodeIds | Variablen OPC-UA-fähig machen, Schema in s7py pflegen |
+| `BadIdentityTokenRejected` / `BadUserAccessDenied` | Falscher Benutzer/Passwort | TIA-Benutzerverwaltung und s7py-Zugangsdaten pruefen |
 | Zertifikat abgelehnt | Client nicht vertrauenswürdig | `client.der` in TIA importieren |
 | `asyncua` fehlt | falsche Python-Umgebung | `python -m pip install asyncua` mit dem s7py-Interpreter |
 
@@ -175,6 +222,7 @@ Bei gesichertem Endpoint wählt s7py automatisch einen passenden Server-Endpoint
 # Empfohlene Reihenfolge
 
 1. **Weg A** — Verbindung ohne Zertifikat testen
-2. Optional **UaExpert** — Endpoints und NodeIds prüfen
-3. **s7py** — Variablen anlegen und Werte lesen
-4. **Weg B** — für Dauerbetrieb Zertifikate und restriktive Policies nutzen
+2. Bei Login-Pflicht **Weg C** — Benutzer/Passwort in s7py
+3. Optional **UaExpert** — Endpoints und NodeIds pruefen
+4. **s7py** — Variablen anlegen und Werte lesen
+5. **Weg B** — fuer Dauerbetrieb Zertifikate und restriktive Policies nutzen

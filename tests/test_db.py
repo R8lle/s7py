@@ -4,6 +4,7 @@ import sqlite3
 
 import pytest
 
+from s7py.constants import PLC_STRUCTURE_KEY_OPCUA
 from s7py.db import (
     build_create_projects_sql,
     create_database,
@@ -43,7 +44,7 @@ class TestSchemaFromConfig:
     def test_opcua_manual_schema_with_read_length_zero(self):
         schema = schema_from_config(
             {
-                "plc_structure": {
+                PLC_STRUCTURE_KEY_OPCUA: {
                     "read_length": 0,
                     "block_name": "OPC UA manuell",
                     "items": [
@@ -63,10 +64,49 @@ class TestSchemaFromConfig:
                     "count_field": "Count",
                     "sqlite_columns": ["Count", "Temperature"],
                 }
-            }
+            },
+            transport="opcua",
         )
         assert schema.read_length == 0
         assert len(schema.items) == 2
+
+    def test_snap7_uses_default_when_only_opcua_schema_in_legacy(self):
+        config = {
+            "plc_transport": "snap7",
+            PLC_STRUCTURE_KEY_OPCUA: {
+                "read_length": 0,
+                "items": [
+                    {
+                        "name": "Count",
+                        "datatype": "DWord",
+                        "bytebit": "opcua",
+                        "node_id": "ns=2;i=1",
+                    }
+                ],
+            },
+        }
+        schema = schema_from_config(config, transport="snap7")
+        assert schema.read_length > 0
+        assert schema.items[0].bytebit == "0.0"
+
+    def test_legacy_opcua_schema_migrates_to_opcua_key(self):
+        config = {
+            "plc_structure": {
+                "read_length": 0,
+                "items": [
+                    {
+                        "name": "Count",
+                        "datatype": "DWord",
+                        "bytebit": "opcua",
+                        "node_id": "ns=2;i=1",
+                    }
+                ],
+            }
+        }
+        schema_from_config(config, transport="opcua")
+        assert isinstance(config.get(PLC_STRUCTURE_KEY_OPCUA), dict)
+        snap7 = schema_from_config(config, transport="snap7")
+        assert snap7.read_length > 0
 
 
 class TestBuildCreateProjectsSql:
@@ -95,6 +135,20 @@ class TestCreateDatabase:
     def test_creates_projects_table(self, tmp_path):
         db_path = tmp_path / "test.db"
         assert create_database(str(db_path), default_plc_schema())
+
+    def test_migrate_creates_table_in_existing_empty_file(self, tmp_path):
+        from s7py.db import create_connection, migrate_database, table_columns
+
+        db_path = tmp_path / "empty.db"
+        db_path.write_bytes(b"")
+        schema = default_plc_schema()
+        conn = create_connection(str(db_path))
+        assert conn is not None
+        migrate_database(conn, schema)
+        cols = table_columns(conn.cursor(), "projects")
+        conn.close()
+        assert "Count" in cols
+        assert "Temperature" in cols
         conn = sqlite3.connect(db_path)
         cols = set(table_columns(conn.cursor(), "projects"))
         assert "Temperature" in cols
@@ -103,9 +157,57 @@ class TestCreateDatabase:
 
 
 class TestDbPathStorage:
+    def test_normalize_db_path_collapses_double_db_suffix(self):
+        from s7py.db import normalize_db_path
+
+        assert normalize_db_path("s7py_opcua.db.db") == "s7py_opcua.db"
+        assert normalize_db_path("data/foo.db.db") == "data/foo.db"
+        assert normalize_db_path("/tmp/test.db.db") == "/tmp/test.db"
+        assert normalize_db_path("s7py.db") == "s7py.db"
+
+    def test_save_last_db_path_strips_double_db_suffix(self, tmp_path, monkeypatch):
+        import json
+
+        from s7py.constants import LAST_DATABASE_KEY
+        from s7py.db import load_last_db_path, save_last_db_path
+
+        app = tmp_path / "app"
+        app.mkdir()
+        cfg = app / "s7py_db.json"
+        monkeypatch.setattr("s7py.constants.APP_DIR", app)
+        monkeypatch.setattr("s7py.db.APP_DIR", app)
+        monkeypatch.setattr("s7py.db.DB_CONFIG_PATH", str(cfg))
+
+        save_last_db_path("s7py_opcua.db.db")
+        stored = json.loads(cfg.read_text(encoding="utf-8"))[LAST_DATABASE_KEY]
+        assert stored == "s7py_opcua.db"
+        assert load_last_db_path().endswith("s7py_opcua.db")
+
+    def test_load_app_config_fixes_double_db_in_json(self, tmp_path, monkeypatch):
+        import json
+
+        from s7py.constants import LAST_DATABASE_KEY
+        from s7py.db import load_app_config
+
+        app = tmp_path / "app"
+        app.mkdir()
+        cfg = app / "s7py_db.json"
+        cfg.write_text(
+            json.dumps({"last_database": "s7py_opcua.db.db"}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("s7py.constants.APP_DIR", app)
+        monkeypatch.setattr("s7py.db.APP_DIR", app)
+        monkeypatch.setattr("s7py.db.DB_CONFIG_PATH", str(cfg))
+
+        load_app_config()
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+        assert data[LAST_DATABASE_KEY] == "s7py_opcua.db"
+
     def test_save_last_db_path_relative(self, tmp_path, monkeypatch):
         import json
 
+        from s7py.constants import LAST_DATABASE_KEY
         from s7py.db import load_last_db_path, save_last_db_path
 
         app = tmp_path / "app"
@@ -117,9 +219,44 @@ class TestDbPathStorage:
         monkeypatch.setattr("s7py.db.DB_CONFIG_PATH", str(cfg))
 
         save_last_db_path(str(db))
-        stored = json.loads(cfg.read_text(encoding="utf-8"))["last_database"]
+        stored = json.loads(cfg.read_text(encoding="utf-8"))[LAST_DATABASE_KEY]
         assert stored == "s7py.db"
         assert load_last_db_path() == str(db.resolve())
+
+    def test_default_db_path_is_shared(self, tmp_path, monkeypatch):
+        from s7py.constants import DEFAULT_DATABASE, PLC_TRANSPORT_OPCUA, PLC_TRANSPORT_SNAP7
+        from s7py.db import default_db_path_for_transport
+
+        app = tmp_path / "app"
+        app.mkdir()
+        monkeypatch.setattr("s7py.constants.APP_DIR", app)
+        monkeypatch.setattr("s7py.db.APP_DIR", app)
+
+        snap_default = default_db_path_for_transport(PLC_TRANSPORT_SNAP7)
+        opc_default = default_db_path_for_transport(PLC_TRANSPORT_OPCUA)
+        assert snap_default == opc_default
+        assert snap_default == DEFAULT_DATABASE
+
+    def test_migrate_legacy_split_db_keys(self, tmp_path, monkeypatch):
+        import json
+
+        from s7py.constants import LAST_DATABASE_KEY
+        from s7py.db import load_last_db_path
+
+        app = tmp_path / "app"
+        app.mkdir()
+        cfg = app / "s7py_db.json"
+        cfg.write_text(
+            json.dumps({"last_database_snap7": "old_snap.db"}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("s7py.constants.APP_DIR", app)
+        monkeypatch.setattr("s7py.db.APP_DIR", app)
+        monkeypatch.setattr("s7py.db.DB_CONFIG_PATH", str(cfg))
+
+        assert load_last_db_path().endswith("old_snap.db")
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+        assert data[LAST_DATABASE_KEY] == "old_snap.db"
 
 
 class TestPollInterval:
@@ -345,3 +482,63 @@ class TestCsvExport:
         assert rows[0][0] == 2
         assert rows[1][0] == 3
         conn.close()
+
+
+class TestMergeOpcUaSecurityConfig:
+    def test_ui_username_overrides_empty_config(self, monkeypatch):
+        from s7py.db import load_opcua_security_config, merge_opcua_security_config
+
+        monkeypatch.setattr(
+            "s7py.db.load_app_config",
+            lambda: {
+                "opcua_client_cert": "/c.der",
+                "opcua_client_key": "/k.pem",
+            },
+        )
+        sec = merge_opcua_security_config(username="plcuser", password="secret")
+        assert sec.username == "plcuser"
+        assert sec.password == "secret"
+        assert sec.client_cert == "/c.der"
+
+    def test_without_ui_uses_config(self, monkeypatch):
+        from s7py.db import merge_opcua_security_config
+
+        monkeypatch.setattr(
+            "s7py.db.load_app_config",
+            lambda: {
+                "opcua_username": "saved",
+                "opcua_password": "pw",
+            },
+        )
+        sec = merge_opcua_security_config()
+        assert sec.username == ""
+        assert sec.password == ""
+        assert not sec.has_credentials()
+
+    def test_empty_ui_ignores_saved_config(self, monkeypatch):
+        from s7py.db import merge_opcua_security_config
+
+        monkeypatch.setattr(
+            "s7py.db.load_app_config",
+            lambda: {
+                "opcua_username": "saved",
+                "opcua_password": "pw",
+            },
+        )
+        sec = merge_opcua_security_config(username="", password="")
+        assert not sec.has_credentials()
+
+    def test_save_credentials_clears_json_keys_when_empty(self, monkeypatch, tmp_path):
+        from s7py import db as db_mod
+
+        cfg_file = tmp_path / "s7py_db.json"
+        cfg_file.write_text(
+            '{"opcua_username":"old","opcua_password":"secret"}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(db_mod, "DB_CONFIG_PATH", cfg_file)
+        db_mod.save_opcua_credentials("", "")
+        data = __import__("json").loads(cfg_file.read_text(encoding="utf-8"))
+        assert "opcua_username" not in data
+        assert "opcua_password" not in data
+        assert "opcua_password_enc" not in data

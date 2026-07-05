@@ -27,11 +27,33 @@ from s7py.ui_opcua_browse import open_opcua_browse_dialog
 
 @dataclass
 class _OpcUaEditorRow:
-    frame: ttk.Frame
+    row_idx: int
+    widgets: list[tk.Widget]
     name_var: tk.StringVar
     type_var: tk.StringVar
     node_var: tk.StringVar
     store_var: tk.BooleanVar
+
+
+# Spaltenbreiten (Pixel); NodeId-Spalte (Index 2) dehnt sich mit weight=1.
+_OPCUA_COL_WIDTHS = (180, 100, 240, 44, 56, 44)
+
+
+def _configure_opcua_table_columns(table: ttk.Frame) -> None:
+    for col, width in enumerate(_OPCUA_COL_WIDTHS):
+        table.columnconfigure(col, minsize=width, weight=1 if col == 2 else 0)
+
+
+def _grid_opcua_row(row_idx: int, widgets: list[tk.Widget]) -> None:
+    for col, widget in enumerate(widgets):
+        sticky = "ew" if col <= 2 else "w"
+        widget.grid(row=row_idx, column=col, sticky=sticky, padx=(0, 8), pady=2)
+
+
+def _relayout_opcua_rows(rows: list[_OpcUaEditorRow]) -> None:
+    for index, row in enumerate(rows):
+        row.row_idx = index + 1
+        _grid_opcua_row(row.row_idx, row.widgets)
 
 
 class OpcUaSchemaMixin:
@@ -106,12 +128,12 @@ class OpcUaSchemaMixin:
         canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
 
-        headers = ("Name", "Typ", "NodeId", "", "SQLite", "")
-        for col, title in enumerate(headers):
-            ttk.Label(scroll_frame, text=title, font=("", 10, "bold")).grid(
+        _configure_opcua_table_columns(scroll_frame)
+        bold = ("", 10, "bold")
+        for col, title in enumerate(("Name", "Typ", "NodeId", "", "SQLite", "")):
+            ttk.Label(scroll_frame, text=title, font=bold).grid(
                 row=0, column=col, sticky="w", padx=(0, 8), pady=(0, 6)
             )
-        scroll_frame.columnconfigure(2, weight=1)
 
         rows: list[_OpcUaEditorRow] = []
 
@@ -141,8 +163,10 @@ class OpcUaSchemaMixin:
 
         def remove_row(row: _OpcUaEditorRow) -> None:
             if row in rows:
+                for widget in row.widgets:
+                    widget.destroy()
                 rows.remove(row)
-                row.frame.destroy()
+                _relayout_opcua_rows(rows)
                 refresh_count_choices()
 
         def add_row(
@@ -153,39 +177,33 @@ class OpcUaSchemaMixin:
             store: bool = True,
         ) -> None:
             row_idx = len(rows) + 1
-            frame = ttk.Frame(scroll_frame)
-            frame.grid(row=row_idx, column=0, columnspan=6, sticky="ew", pady=2)
 
             name_var = tk.StringVar(value=name)
             type_var = tk.StringVar(value=datatype if datatype in OPCUA_DATATYPES else "Real")
             node_var = tk.StringVar(value=node_id)
             store_var = tk.BooleanVar(value=store)
 
-            ttk.Entry(frame, textvariable=name_var, width=18).grid(
-                row=0, column=0, sticky="w", padx=(0, 8)
+            browse_btn = ttk.Button(scroll_frame, text="...", width=3)
+            del_btn = ttk.Button(scroll_frame, text="X", width=3)
+            widgets: list[tk.Widget] = [
+                ttk.Entry(scroll_frame, textvariable=name_var, width=22),
+                ttk.Combobox(
+                    scroll_frame,
+                    textvariable=type_var,
+                    values=list(OPCUA_DATATYPES),
+                    width=10,
+                    state="readonly",
+                ),
+                ttk.Entry(scroll_frame, textvariable=node_var),
+                browse_btn,
+                ttk.Checkbutton(scroll_frame, variable=store_var),
+                del_btn,
+            ]
+            editor_row = _OpcUaEditorRow(
+                row_idx, widgets, name_var, type_var, node_var, store_var
             )
-            ttk.Combobox(
-                frame,
-                textvariable=type_var,
-                values=list(OPCUA_DATATYPES),
-                width=8,
-                state="readonly",
-            ).grid(row=0, column=1, sticky="w", padx=(0, 8))
-            ttk.Entry(frame, textvariable=node_var).grid(
-                row=0, column=2, sticky="ew", padx=(0, 4)
-            )
-            frame.columnconfigure(2, weight=1)
-            editor_row = _OpcUaEditorRow(frame, name_var, type_var, node_var, store_var)
-            ttk.Button(
-                frame,
-                text="...",
-                width=3,
-                command=lambda r=editor_row: browse_for_row(r),
-            ).grid(row=0, column=3, sticky="w", padx=(0, 8))
-            ttk.Checkbutton(frame, variable=store_var).grid(row=0, column=4, sticky="w")
-            del_btn = ttk.Button(frame, text="X", width=3)
-            del_btn.grid(row=0, column=5, padx=(4, 0))
-
+            browse_btn.configure(command=lambda r=editor_row: browse_for_row(r))
+            _grid_opcua_row(row_idx, widgets)
             rows.append(editor_row)
             del_btn.configure(command=lambda r=editor_row: remove_row(r))
             name_var.trace_add("write", lambda *_a: refresh_count_choices())

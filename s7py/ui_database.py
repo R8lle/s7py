@@ -16,7 +16,6 @@ from s7py.charts import invalidate_table_columns_cache
 from s7py.ui_base import S7PyAppProtocol
 from s7py.constants import (
     APP_DIR,
-    DEFAULT_DATABASE,
     PLOT_MAX_ROWS_DEFAULT,
     TABLE_VIEW_ALL_CONFIRM_ROWS,
     TIMESTAMP_FORMAT_FILE,
@@ -26,6 +25,7 @@ from s7py.db import (
     create_connection,
     create_database,
     csv_export_columns,
+    default_db_path_for_transport,
     fetch_projects_for_csv,
     fetch_projects_stats,
     format_projects_stats_suffix,
@@ -33,6 +33,7 @@ from s7py.db import (
     projects_row_count,
     resolve_csv_export_columns,
     resolve_db_path,
+    normalize_db_path,
     save_last_db_path,
     trim_projects_keep_last,
     vacuum_sqlite_database,
@@ -41,6 +42,18 @@ from s7py.db import (
 
 class DatabaseMixin:
     """SQLite-Anbindung und CSV-Export."""
+
+    def _resolve_active_db_path(self: S7PyAppProtocol) -> str:
+        raw = self.var_db.get().strip() or self._db_path or default_db_path_for_transport()
+        return resolve_db_path(normalize_db_path(raw))
+
+    def _on_db_path_focus_out(self: S7PyAppProtocol, _event: object = None) -> None:
+        raw = self.var_db.get().strip()
+        if not raw:
+            return
+        normalized = normalize_db_path(raw)
+        if normalized != raw:
+            self.var_db.set(resolve_db_path(normalized))
 
     def _format_table_cell(self: S7PyAppProtocol, value: object) -> str:
         if value is None:
@@ -251,7 +264,7 @@ class DatabaseMixin:
             )
             return
 
-        db_path = resolve_db_path(self.var_db.get().strip() or self._db_path or DEFAULT_DATABASE)
+        db_path = self._resolve_active_db_path()
         if not os.path.isfile(db_path):
             messagebox.showerror(
                 "Datenbank warten",
@@ -331,7 +344,7 @@ class DatabaseMixin:
         Fehlt die Datei und ``create_if_missing`` ist gesetzt, wird sie neu
         angelegt (inkl. uebergeordnetem Verzeichnis) und anschliessend geladen.
         """
-        db_path = db_path.strip()
+        db_path = normalize_db_path(db_path.strip())
         if not db_path:
             if not silent:
                 messagebox.showerror("Datenbank", "Kein Datenbankpfad angegeben.")
@@ -408,7 +421,7 @@ class DatabaseMixin:
 
     def _on_browse_db(self: S7PyAppProtocol) -> None:
         """Bestehende SQLite-Datei oeffnen (kein Ueberschreiben-Dialog)."""
-        current = resolve_db_path(self.var_db.get().strip() or DEFAULT_DATABASE)
+        current = self._resolve_active_db_path()
         initial_dir = os.path.dirname(current) or str(APP_DIR)
         initial_file = os.path.basename(current) or "s7py.db"
         path = filedialog.askopenfilename(
@@ -433,7 +446,7 @@ class DatabaseMixin:
         if not options:
             return
 
-        db_path = resolve_db_path(self.var_db.get().strip() or DEFAULT_DATABASE)
+        db_path = self._resolve_active_db_path()
         if not os.path.isfile(db_path):
             messagebox.showerror(
                 "CSV-Export",
@@ -514,7 +527,7 @@ class DatabaseMixin:
             except tk.TclError:
                 pass
 
-        db_path = resolve_db_path(self.var_db.get().strip() or self._db_path or DEFAULT_DATABASE)
+        db_path = self._resolve_active_db_path()
         if not os.path.isfile(db_path):
             messagebox.showerror(
                 "Datenbank-Tabelle",
