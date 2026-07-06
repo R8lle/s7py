@@ -39,6 +39,7 @@ from s7py.schema import (
     default_plc_schema,
     is_opcua_schema_items,
     parse_db_layout,
+    resolve_live_fields,
 )
 
 
@@ -65,6 +66,30 @@ def normalize_db_path(path: str) -> str:
     if len(p.parts) > 1:
         return str(p.parent / name)
     return name
+
+
+def sanitize_sqlite_save_path(path: str) -> str:
+    """Pfad aus einem Speichern-Dialog: Endung .db ohne Doppelung."""
+    raw = (path or "").strip()
+    if not raw:
+        return ""
+    p = Path(raw)
+    name = p.name
+    lower = name.lower()
+    if not any(lower.endswith(ext) for ext in (".db", ".sqlite", ".sqlite3")):
+        name = f"{name}.db"
+    if len(p.parts) > 1:
+        combined = str(p.parent / name)
+    else:
+        combined = name
+    return normalize_db_path(combined)
+
+
+def remove_sqlite_database_files(database: str) -> None:
+    """Entfernt eine SQLite-Datei inkl. WAL/SHM-Nebendateien."""
+    for path in (database, f"{database}-wal", f"{database}-shm"):
+        if os.path.isfile(path):
+            os.remove(path)
 
 
 def resolve_db_path(path: str) -> str:
@@ -220,7 +245,12 @@ def _schema_from_plc_dict(plc: dict) -> PlcDbSchema:
         plot_fields_list = [str(plot_fields_raw[0]), str(plot_fields_raw[1])]
     else:
         plot_fields_list = [str(name) for name in plot_fields_raw]
-    live_fields = plc.get("live_fields") or sqlite_columns[:4]
+    live_fields_list = resolve_live_fields(
+        [str(name) for name in sqlite_columns],
+        [str(name) for name in live_fields_raw]
+        if (live_fields_raw := plc.get("live_fields"))
+        else None,
+    )
     if "read_length" in plc:
         read_length = int(plc.get("read_length") or 0)
     elif is_opcua_schema_items(items):
@@ -240,7 +270,7 @@ def _schema_from_plc_dict(plc: dict) -> PlcDbSchema:
         read_length=read_length,
         count_field=str(plc.get("count_field", "Count")),
         plot_fields=plot_fields_list,
-        live_fields=[str(name) for name in live_fields],
+        live_fields=[str(name) for name in live_fields_list],
         sqlite_columns=[str(name) for name in sqlite_columns],
     )
 
@@ -780,7 +810,7 @@ def quote_identifier(name: object) -> str:
 
 
 def sqlite_type_for_item(item: DbItem) -> str:
-    if item.datatype == "Real":
+    if item.datatype in ("Real", "LReal"):
         return "real"
     if item.datatype == "String":
         return "text"
@@ -807,14 +837,31 @@ def build_create_projects_sql(schema: PlcDbSchema) -> str:
     return "CREATE TABLE IF NOT EXISTS projects (" + ", ".join(columns) + ");"
 
 
-def create_database(database: str, schema: Optional[PlcDbSchema] = None) -> bool:
+def create_database(
+    database: str,
+    schema: Optional[PlcDbSchema] = None,
+    *,
+    replace: bool = False,
+) -> bool:
     """Legt eine neue SQLite-Datei mit ``projects``-Tabelle an und fuehrt Migrationen aus.
+
+    Mit ``replace=True`` wird eine bestehende Datei (inkl. WAL/SHM) zuerst entfernt,
+  damit wirklich eine leere Datenbank entsteht.
 
     Returns:
         ``True``, wenn die Datei danach existiert und geoeffnet werden konnte.
     """
     if schema is None:
         schema = default_plc_schema()
+
+    database = resolve_db_path(database)
+
+    if replace and os.path.isfile(database):
+        try:
+            remove_sqlite_database_files(database)
+        except OSError as exc:
+            log_msg(f"Bestehende DB konnte nicht geloescht werden: {exc}")
+            return False
 
     parent = os.path.dirname(os.path.abspath(database))
     if parent:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from dataclasses import dataclass
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from s7py.constants import APP_DIR, DB_CONFIG_PATH
@@ -13,6 +14,7 @@ from s7py.db import (
     create_database,
     migrate_database,
     resolve_db_path,
+    sanitize_sqlite_save_path,
     save_plc_schema,
 )
 from s7py.schema import (
@@ -22,6 +24,7 @@ from s7py.schema import (
     schema_from_opcua_manual,
 )
 from s7py.ui_base import S7PyAppProtocol
+from s7py.ui_flow import center_toplevel_on_parent
 from s7py.ui_opcua_browse import open_opcua_browse_dialog
 
 
@@ -72,7 +75,6 @@ class OpcUaSchemaMixin:
         dialog.title("OPC UA — Variablen manuell")
         dialog.transient(self)
         dialog.grab_set()
-        dialog.geometry("980x520")
         dialog.minsize(900, 420)
 
         outer = ttk.Frame(dialog, padding=12)
@@ -313,13 +315,15 @@ class OpcUaSchemaMixin:
                 elif db_path and os.path.isfile(db_path):
                     self._attach_database(db_path, create_if_missing=False, silent=True)
             else:
-                initial = os.path.dirname(resolve_db_path(self._db_path)) or str(APP_DIR)
+                current_db = Path(resolve_db_path(self._db_path))
+                initial = str(current_db.parent) if current_db.parent.parts else str(APP_DIR)
+                initial_name = current_db.name or "s7py_opcua.db"
                 db_path = filedialog.asksaveasfilename(
                     parent=dialog,
                     title="Neue SQLite-Datenbank",
                     initialdir=initial,
-                    initialfile="s7py_opcua.db",
-                    defaultextension=".db",
+                    initialfile=initial_name,
+                    defaultextension="",
                     filetypes=[("SQLite", "*.db"), ("Alle Dateien", "*.*")],
                 )
                 if not db_path:
@@ -330,8 +334,15 @@ class OpcUaSchemaMixin:
                     )
                     dialog.destroy()
                     return
-                db_path = resolve_db_path(db_path)
-                if not create_database(db_path, schema):
+                db_path = resolve_db_path(sanitize_sqlite_save_path(db_path))
+                if self.conn_read is not None:
+                    try:
+                        self.conn_read.close()
+                    except Exception:
+                        pass
+                    self.conn_read = None
+                    self.cursor_read = None
+                if not create_database(db_path, schema, replace=True):
                     messagebox.showerror(
                         "Datenbank",
                         f"Neue Datenbank konnte nicht angelegt werden:\n{db_path}",
@@ -353,3 +364,4 @@ class OpcUaSchemaMixin:
             side=tk.RIGHT, padx=(8, 0)
         )
         ttk.Button(btn_row, text="Speichern", command=on_save).pack(side=tk.RIGHT)
+        center_toplevel_on_parent(dialog, self, width=980, height=520)

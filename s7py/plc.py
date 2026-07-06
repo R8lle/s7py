@@ -7,7 +7,16 @@ from typing import Optional
 
 import snap7.client
 from snap7.type import Areas
-from snap7.util import get_bool, get_byte, get_dword, get_int, get_real, get_string
+from snap7.util import (
+    get_bool,
+    get_byte,
+    get_dint,
+    get_dword,
+    get_int,
+    get_lreal,
+    get_real,
+    get_string,
+)
 
 from s7py.constants import (
     PLC_IO_ERRORS,
@@ -20,13 +29,57 @@ from s7py.log import log_msg
 from s7py.schema import DbItem
 
 offsets = {
-    "Bool"  : 2,
-    "Byte"  : 1,
-    "Int"   : 2,
-    "Real"  : 4,
-    "DWord" : 4,
-    "String": 256
-    }
+    "Bool": 1,
+    "Byte": 1,
+    "Int": 2,
+    "Real": 4,
+    "LReal": 8,
+    "DWord": 4,
+    "String": 256,
+}
+
+
+def is_lreal_item(item: DbItem) -> bool:
+    """True, wenn das Feld als 64-Bit-Gleitkomma (LREAL) gelesen werden muss."""
+    datatype = (item.datatype or "").lower()
+    if datatype == "lreal":
+        return True
+    if datatype == "real":
+        s7 = (item.s7_type or "").upper()
+        return s7 == "LREAL" or item.size >= 8
+    return False
+
+
+def read_item_value(data: bytes | bytearray, item: DbItem) -> object:
+    """Liest einen Wert aus dem DB-Puffer gemaess Item-Typ."""
+    try:
+        byte_part, bit_part = item.bytebit.split(".")
+    except (ValueError, AttributeError) as exc:
+        raise ValueError(
+            f"Ungueltiges bytebit-Format in Item {item.name}: {item.bytebit}"
+        ) from exc
+    offset = int(byte_part)
+    datatype = item.datatype
+
+    if is_lreal_item(item):
+        return get_lreal(data, offset)
+    if datatype == "Real":
+        return get_real(data, offset)
+    if datatype == "Bool":
+        return get_bool(data, offset, int(bit_part))
+    if datatype == "DWord":
+        if (item.s7_type or "").upper() == "DINT":
+            return get_dint(data, offset)
+        return get_dword(data, offset)
+    if datatype == "Int":
+        return get_int(data, offset)
+    if datatype == "Byte":
+        return get_byte(data, offset)
+    if datatype == "String":
+        return get_string(data, offset)
+    raise ValueError(f"Nicht unterstuetzter Datentyp in DBRead: {datatype}")
+
+
 def DBRead(
     plc: snap7.client.Client, db_num: int, length: int, dbitems: list[DbItem]
 ) -> SimpleNamespace:
@@ -41,38 +94,7 @@ def DBRead(
     data = plc.read_area(Areas.DB, db_num, 0, length)
     obj = SimpleNamespace()
     for item in dbitems:
-        value = None
-        datatype = item.datatype
-        try:
-            byte_part, bit_part = item.bytebit.split('.')
-        except (ValueError, AttributeError) as exc:
-            raise ValueError(
-                f"Ungültiges bytebit-Format in Item {item.name}: {item.bytebit}"
-            ) from exc
-        offset = int(byte_part)
-
-        if datatype == 'Real':
-            value = get_real(data,offset)
-
-        elif datatype == 'Bool':
-            bit = int(bit_part)
-            value = get_bool(data,offset,bit)
-
-        elif datatype == 'DWord':
-            value = get_dword(data, offset)
-
-        elif datatype == 'Int':
-            value = get_int(data, offset)
-
-        elif datatype == 'Byte':
-            value = get_byte(data, offset)
-
-        elif datatype == 'String':
-            value = get_string(data, offset)
-        else:
-            raise ValueError(f"Nicht unterstuetzter Datentyp in DBRead: {datatype}")
-        
-        setattr(obj, item.name, value)
+        setattr(obj, item.name, read_item_value(data, item))
 
     return obj
 

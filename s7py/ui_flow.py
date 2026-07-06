@@ -102,3 +102,28 @@ class FlowFrame(ttk.Frame):
             self._last_layout = layout
         finally:
             self._reflowing = False
+
+
+def center_toplevel_on_parent(
+    window: tk.Toplevel,
+    parent: tk.Misc,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> None:
+    """Zentriert ein Dialogfenster ueber dem Elternfenster (sichtbarer Bereich)."""
+    window.update_idletasks()
+    parent.update_idletasks()
+    win_w = width or max(window.winfo_width(), window.winfo_reqwidth())
+    win_h = height or max(window.winfo_height(), window.winfo_reqheight())
+    px = parent.winfo_rootx()
+    py = parent.winfo_rooty()
+    pw = max(parent.winfo_width(), 1)
+    ph = max(parent.winfo_height(), 1)
+    x = px + max(0, (pw - win_w) // 2)
+    y = py + max(0, (ph - win_h) // 2)
+    screen_w = window.winfo_screenwidth()
+    screen_h = window.winfo_screenheight()
+    x = max(0, min(x, screen_w - win_w))
+    y = max(0, min(y, screen_h - win_h))
+    window.geometry(f"{win_w}x{win_h}+{x}+{y}")

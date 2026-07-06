@@ -6,7 +6,7 @@ from typing import Iterable, Optional
 
 import matplotlib.axes
 
-from s7py.constants import TIMESTAMP_FORMAT_DB
+from s7py.constants import parse_db_timestamp_string
 from s7py.db import quote_identifier, table_columns
 from s7py.log import log_msg, logger
 from s7py.schema import PlcDbSchema
@@ -95,7 +95,7 @@ def _parse_chart_rows(
         if skip:
             continue
         try:
-            ts = datetime.strptime(ts_str, TIMESTAMP_FORMAT_DB)
+            ts = parse_db_timestamp_string(ts_str)
         except (TypeError, ValueError) as exc:
             logger.debug(
                 "Ungueltiger Zeitstempel in DB, Zeile uebersprungen: %r (%s)",

@@ -209,12 +209,17 @@ class S7PyApp(
                 except queue.Empty:
                     break
             if latest_live is not None:
+                items_by_name = {it.name: it for it in self._schema.items}
                 for idx, var in enumerate(self._live_value_vars):
                     if idx < len(self._schema.live_fields):
                         field = self._schema.live_fields[idx]
                         value = latest_live.get(field, LIVE_LABEL_EMPTY)
                         if isinstance(value, float):
-                            var.set(f"{value:.3f}")
+                            item = items_by_name.get(field)
+                            precision = (
+                                6 if item is not None and item.datatype == "LReal" else 3
+                            )
+                            var.set(f"{value:.{precision}f}")
                         else:
                             var.set(str(value))
             gap_hint = None

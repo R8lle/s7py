@@ -13,6 +13,7 @@ from s7py.opcua_browse import (
     disconnect_opcua_client,
     list_child_nodes,
 )
+from s7py.ui_flow import center_toplevel_on_parent
 
 
 def open_opcua_browse_dialog(
@@ -27,7 +28,6 @@ def open_opcua_browse_dialog(
     dialog.title("OPC UA — Server durchsuchen")
     dialog.transient(parent)
     dialog.grab_set()
-    dialog.geometry("720x480")
     dialog.minsize(520, 360)
 
     outer = ttk.Frame(dialog, padding=10)
@@ -236,3 +236,5 @@ def open_opcua_browse_dialog(
 
     if endpoint_var.get().strip():
         dialog.after(200, on_connect)
+
+    center_toplevel_on_parent(dialog, parent, width=720, height=480)

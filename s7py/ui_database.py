@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from s7py.charts import invalidate_table_columns_cache
 from s7py.ui_base import S7PyAppProtocol
+from s7py.ui_flow import center_toplevel_on_parent
 from s7py.constants import (
     APP_DIR,
     PLOT_MAX_ROWS_DEFAULT,
@@ -168,6 +169,7 @@ class DatabaseMixin:
         )
         dialog.protocol("WM_DELETE_WINDOW", on_cancel)
         dialog.bind("<Escape>", lambda _e: on_cancel())
+        center_toplevel_on_parent(dialog, self)
         self.wait_window(dialog)
         return result or None
 
@@ -251,6 +253,7 @@ class DatabaseMixin:
         ttk.Button(buttons, text="Ausfuehren", command=on_ok).pack(side=tk.RIGHT, padx=(0, 8))
         dialog.protocol("WM_DELETE_WINDOW", on_cancel)
         dialog.bind("<Escape>", lambda _e: on_cancel())
+        center_toplevel_on_parent(dialog, self)
         self.wait_window(dialog)
         return result or None
 
@@ -538,7 +541,6 @@ class DatabaseMixin:
         win = tk.Toplevel(self)
         self._db_table_window = win
         win.title("s7py — Datenbank-Tabelle")
-        win.geometry("960x520")
         win.minsize(640, 320)
 
         def on_close() -> None:
@@ -681,3 +683,4 @@ class DatabaseMixin:
 
         ttk.Button(toolbar, text="Aktualisieren", command=reload_table).pack(side=tk.LEFT)
         reload_table()
+        center_toplevel_on_parent(win, self, width=960, height=520)

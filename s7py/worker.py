@@ -2,7 +2,6 @@
 
 import sqlite3
 import threading
-from datetime import datetime
 from types import SimpleNamespace
 from typing import Optional
 
@@ -14,26 +13,27 @@ from s7py.constants import (
     PLC_SLOT,
     RECORDING_MODE_COUNT,
     RECORDING_MODE_EVERY_CYCLE,
-    TIMESTAMP_FORMAT_DB,
+    format_db_timestamp,
 )
 from s7py.db import create_connection, create_newline, normalize_poll_interval_s
 from s7py.log import log_msg, logger, notify_count_gap, push_live_snapshot, show_msg
 from s7py.schema import DbItem, PlcDbSchema
 
-def format_plc_value(value: object) -> str:
+def format_plc_value(value: object, datatype: str = "") -> str:
     if isinstance(value, float):
-        return f"{value:.3f}"
+        precision = 6 if (datatype or "").lower() == "lreal" else 3
+        return f"{value:.{precision}f}"
     return str(value)
 
 
 def round_plc_value(value: object, datatype: str) -> object:
-    if datatype == "Real" and isinstance(value, (int, float)):
-        return round(float(value), 3)
+    if datatype in ("Real", "LReal") and isinstance(value, (int, float)):
+        return round(float(value), 6 if datatype == "LReal" else 3)
     return value
 
 
 def build_insert_row(meh: SimpleNamespace, schema: PlcDbSchema) -> tuple:
-    values: list[object] = [datetime.now().strftime(TIMESTAMP_FORMAT_DB)]
+    values: list[object] = [format_db_timestamp()]
     for name in schema.sqlite_columns:
         item = next((it for it in schema.items if it.name == name), None)
         if item is None:
@@ -128,6 +128,11 @@ def write_data_to_db(
                 )
                 OldCount = -1
 
+            live_values = {
+                name: getattr(meh, name) for name in schema.live_fields
+            }
+            push_live_snapshot(live_values)
+
             if should_store_sample(
                 recording_mode=recording_mode,
                 count_value=count_value,
@@ -138,15 +143,14 @@ def write_data_to_db(
                     if missed is not None:
                         notify_count_gap(missed, interval_s)
                 i = i + 1
-                msg_parts = [
-                    f"{name}={format_plc_value(getattr(meh, name))}"
-                    for name in schema.sqlite_columns
-                ]
+                msg_parts = []
+                for name in schema.sqlite_columns:
+                    item = next((it for it in schema.items if it.name == name), None)
+                    datatype = item.datatype if item is not None else ""
+                    msg_parts.append(
+                        f"{name}={format_plc_value(getattr(meh, name), datatype)}"
+                    )
                 show_msg(f"Abfrage Nr {i} | " + " | ".join(msg_parts))
-                live_values = {
-                    name: getattr(meh, name) for name in schema.live_fields
-                }
-                push_live_snapshot(live_values)
                 OldCount = count_value
 
                 newline = build_insert_row(meh, schema)

@@ -20,6 +20,7 @@ OPCUA_DATATYPES: tuple[str, ...] = (
 
 SNAP7_DATATYPES: tuple[str, ...] = (
     "Real",
+    "LReal",
     "DWord",
     "Int",
     "Bool",
@@ -49,10 +50,12 @@ S7_ALIGNMENT: dict[str, int] = {
     "DATE_AND_TIME": 4,
     "STRING": 1,
     "WSTRING": 2,
-    "LREAL": 8,
-    "LINT": 8,
-    "ULINT": 8,
-    "LWORD": 8,
+    # LREAL ist 8 Byte gross, startet in nicht-optimierten DBs aber auf 4-Byte-Grenze
+    # (direkt nach DInt/DWord ohne zusaetzliches Padding bis Byte 8).
+    "LREAL": 4,
+    "LINT": 4,
+    "ULINT": 4,
+    "LWORD": 4,
 }
 
 S7_TO_SNAP7: dict[str, str] = {
@@ -69,7 +72,7 @@ S7_TO_SNAP7: dict[str, str] = {
     "DINT": "DWord",
     "UDINT": "DWord",
     "REAL": "Real",
-    "LREAL": "Real",
+    "LREAL": "LReal",
     "TIME": "DWord",
     "DATE": "DWord",
     "TIME_OF_DAY": "DWord",
@@ -135,7 +138,7 @@ class DbItem:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DbItem:
-        return cls(
+        item = cls(
             name=str(data["name"]),
             datatype=str(data["datatype"]),
             bytebit=str(data["bytebit"]),
@@ -144,6 +147,44 @@ class DbItem:
             s7_type=str(data.get("s7_type", "") or ""),
             node_id=str(data.get("node_id", "") or ""),
         )
+        return normalize_snap7_db_item(item)
+
+
+def normalize_snap7_db_item(item: DbItem) -> DbItem:
+    """Korrigiert aeltere Schemas, in denen LREAL faelschlich als Real gespeichert wurde."""
+    datatype = (item.datatype or "").strip()
+    s7 = (item.s7_type or "").upper()
+    if s7 == "LREAL" and datatype.lower() == "real":
+        return DbItem(
+            name=item.name,
+            datatype="LReal",
+            bytebit=item.bytebit,
+            store=item.store,
+            size=item.size or 8,
+            s7_type=item.s7_type or "LREAL",
+            node_id=item.node_id,
+        )
+    if datatype.lower() == "lreal":
+        return DbItem(
+            name=item.name,
+            datatype="LReal",
+            bytebit=item.bytebit,
+            store=item.store,
+            size=item.size or 8,
+            s7_type=item.s7_type or "LREAL",
+            node_id=item.node_id,
+        )
+    if datatype.lower() == "real" and item.size >= 8:
+        return DbItem(
+            name=item.name,
+            datatype="LReal",
+            bytebit=item.bytebit,
+            store=item.store,
+            size=item.size,
+            s7_type=item.s7_type or "LREAL",
+            node_id=item.node_id,
+        )
+    return item
 
 
 def coerce_db_items(raw: list[Any]) -> list[DbItem]:
@@ -244,7 +285,10 @@ def parse_tia_data_block_file(path: str) -> PlcDbSchema:
         line = raw_line.strip()
         if not line or line.startswith("//"):
             continue
-        member_match = re.match(r"(\w+)\s*:\s*([^;]+);", line)
+        member_match = re.match(
+            r"(\w+)(?:\s*\{[^}]*\})?\s*:\s*([^;]+);",
+            line,
+        )
         if member_match:
             members.append((member_match.group(1), member_match.group(2).strip()))
 
@@ -288,7 +332,9 @@ def parse_tia_data_block_file(path: str) -> PlcDbSchema:
         members[0][0],
     )
     real_names = [
-        it.name for it in items if it.datatype == "Real" and it.store
+        it.name
+        for it in items
+        if it.datatype in ("Real", "LReal") and it.store
     ]
     temp_field = next(
         (it.name for it in items if "temp" in it.name.lower()),
@@ -358,7 +404,7 @@ def _schema_from_layout(layout: str, *, source_file: str = "") -> PlcDbSchema:
 
     items = parse_db_layout(layout)
     sqlite_columns = [it.name for it in items]
-    real_names = [it.name for it in items if it.datatype == "Real"]
+    real_names = [it.name for it in items if it.datatype in ("Real", "LReal")]
     return PlcDbSchema(
         source_file=source_file,
         block_name="Default",
@@ -411,7 +457,29 @@ def _derive_plot_and_live_fields(sqlite_columns: list[str]) -> tuple[list[str], 
                 break
     if not live_fields:
         live_fields = sqlite_columns[:4]
+    skip_names = {"db_string", "reserve"}
+    for col in sqlite_columns:
+        if col.lower() in skip_names:
+            continue
+        if col not in live_fields:
+            live_fields.append(col)
+        if len(live_fields) >= 4:
+            break
     return [plot_1, plot_2], live_fields
+
+
+def resolve_live_fields(
+    sqlite_columns: list[str],
+    saved: list[str] | None = None,
+) -> list[str]:
+    """Live-Anzeige: bis zu 4 Felder, bei veralteter Config auffuellen."""
+    _, derived = _derive_plot_and_live_fields(sqlite_columns)
+    if not saved:
+        return derived
+    saved_names = [str(name) for name in saved]
+    if len(saved_names) < min(4, len(derived)):
+        return derived
+    return saved_names[:4]
 
 
 def items_for_plc_read(schema: PlcDbSchema) -> list[DbItem]:
@@ -454,6 +522,8 @@ def schema_from_snap7_manual(
 
     if not items:
         raise ValueError("Mindestens ein Datenpunkt erforderlich.")
+
+    items = [normalize_snap7_db_item(it) for it in items]
 
     names = [it.name.strip() for it in items]
     if any(not name for name in names):

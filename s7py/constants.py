@@ -2,6 +2,7 @@
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from snap7.error import S7Error
@@ -28,9 +29,24 @@ def _resolve_app_dir() -> Path:
 # Verzeichnis fuer Konfiguration, SQLite und Logdatei.
 APP_DIR = _resolve_app_dir()
 
+# Kanonisches SQLite-Format fuer ``projects.time``: YYYY-MM-DD HH:MM:SS.mmm
 TIMESTAMP_FORMAT_DB = "%Y-%m-%d %H:%M:%S"
 TIMESTAMP_FORMAT_LOG = "%H:%M:%S"
 TIMESTAMP_FORMAT_FILE = "_%Y%m%d_%H%M%S"
+
+
+def format_db_timestamp(when: datetime | None = None) -> str:
+    """Zeitstempel fuer SQLite mit Millisekunden-Aufloesung (3 Nachkommastellen)."""
+    dt = when or datetime.now()
+    return dt.strftime(TIMESTAMP_FORMAT_DB) + f".{dt.microsecond // 1000:03d}"
+
+
+def parse_db_timestamp_string(ts_str: str) -> datetime:
+    """Liest ``projects.time`` (mit oder ohne Millisekunden)."""
+    text = str(ts_str).strip()
+    if "." in text:
+        return datetime.strptime(text, f"{TIMESTAMP_FORMAT_DB}.%f")
+    return datetime.strptime(text, TIMESTAMP_FORMAT_DB)
 
 # Rotierende Diagnose-Logdatei (siehe I-3 in der Code-Analyse).
 LOG_FILE_PATH = str(APP_DIR / "s7py.log")
