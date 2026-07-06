@@ -15,6 +15,7 @@ from s7py.db import (
     migrate_database,
     resolve_db_path,
     sanitize_sqlite_save_path,
+    sqlite_save_dialog_params,
     save_plc_db_number,
     save_plc_schema,
 )
@@ -357,13 +358,16 @@ class Snap7SchemaMixin:
             else:
                 current_db = Path(resolve_db_path(self._db_path))
                 initial = str(current_db.parent) if current_db.parent.parts else str(APP_DIR)
-                initial_name = current_db.name or "s7py.db"
+                initial_name, default_ext = sqlite_save_dialog_params(
+                    current_db.name,
+                    default="s7py.db",
+                )
                 db_path = filedialog.asksaveasfilename(
                     parent=dialog,
                     title="Neue SQLite-Datenbank",
                     initialdir=initial,
                     initialfile=initial_name,
-                    defaultextension="",
+                    defaultextension=default_ext,
                     filetypes=[("SQLite", "*.db"), ("Alle Dateien", "*.*")],
                 )
                 if not db_path:

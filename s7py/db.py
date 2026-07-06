@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 from sqlite3 import Error
@@ -83,6 +84,23 @@ def sanitize_sqlite_save_path(path: str) -> str:
     else:
         combined = name
     return normalize_db_path(combined)
+
+
+def sqlite_save_dialog_params(
+    path_or_name: str,
+    *,
+    default: str = "s7py.db",
+) -> tuple[str, str]:
+    """Liefert (initialfile, defaultextension) fuer asksaveasfilename.
+
+    Bereinigt doppelte .db-Endungen vor Anzeige. Unter macOS nur den Stammnamen
+    ohne Endung, damit das System nicht erneut .db anhaengt.
+    """
+    sanitized = sanitize_sqlite_save_path(path_or_name or default)
+    name = Path(sanitized).name
+    if sys.platform == "darwin":
+        return Path(name).stem, ".db"
+    return name, ""
 
 
 def remove_sqlite_database_files(database: str) -> None:
