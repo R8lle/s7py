@@ -12,6 +12,8 @@ from s7py.constants import (
     PLC_DB_NUMBER,
     PLC_RACK,
     PLC_SLOT,
+    RECORDING_MODE_COUNT,
+    RECORDING_MODE_EVERY_CYCLE,
     TIMESTAMP_FORMAT_DB,
 )
 from s7py.db import create_connection, create_newline, normalize_poll_interval_s
@@ -47,6 +49,18 @@ def detect_count_gap(old_count: int, count_value: int) -> int | None:
     return None
 
 
+def should_store_sample(
+    *,
+    recording_mode: str,
+    count_value: int,
+    old_count: int,
+) -> bool:
+    """True, wenn der aktuelle Lesezyklus in SQLite geschrieben werden soll."""
+    if recording_mode == RECORDING_MODE_EVERY_CYCLE:
+        return True
+    return count_value > old_count
+
+
 def write_data_to_db(
     database: str,
     backend: PlcBackend,
@@ -60,12 +74,14 @@ def write_data_to_db(
     plc_rack: int = PLC_RACK,
     plc_slot: int = PLC_SLOT,
     plc_db_number: int = PLC_DB_NUMBER,
+    recording_mode: str = RECORDING_MODE_COUNT,
 ) -> None:
-    """Worker-Thread: liest die SPS zyklisch und schreibt neue Messpunkte nach SQLite.
+    """Worker-Thread: liest die SPS zyklisch und schreibt Messpunkte nach SQLite.
 
-    Schreibt nur, wenn ``Count`` gestiegen ist; erkennt Count-Ruecksprung
-    (SPS-Reset) und setzt den internen Vergleichswert zurueck. Beendet
-    sich, sobald ``stop_event`` gesetzt wird.
+    Standard: Schreibt nur, wenn ``Count`` gestiegen ist. Im Modus
+    ``every_cycle`` wird jeder erfolgreiche Lesezyklus gespeichert.
+    Erkennt Count-Ruecksprung (SPS-Reset) und setzt den internen
+    Vergleichswert zurueck. Beendet sich, sobald ``stop_event`` gesetzt wird.
 
     Unerwartete Fehler (z.B. ``ValueError`` aus ``get_string`` bei
     korruptem String-Header) beenden den Thread nicht mehr still,
@@ -112,16 +128,15 @@ def write_data_to_db(
                 )
                 OldCount = -1
 
-            if count_value > OldCount:
-                # Luecke erkennen: Count ist um mehr als 1 gestiegen, obwohl
-                # bereits ein Messpunkt erfasst wurde (OldCount > 0). Das deutet
-                # darauf hin, dass die SPS schneller zaehlt als die Abfrage pollt
-                # und Zwischenwerte nicht erfasst wurden. Reset-Faelle (OldCount
-                # == -1) und der allererste Messpunkt (OldCount == 0) loesen
-                # bewusst keine Warnung aus.
-                missed = detect_count_gap(OldCount, count_value)
-                if missed is not None:
-                    notify_count_gap(missed, interval_s)
+            if should_store_sample(
+                recording_mode=recording_mode,
+                count_value=count_value,
+                old_count=OldCount,
+            ):
+                if recording_mode == RECORDING_MODE_COUNT:
+                    missed = detect_count_gap(OldCount, count_value)
+                    if missed is not None:
+                        notify_count_gap(missed, interval_s)
                 i = i + 1
                 msg_parts = [
                     f"{name}={format_plc_value(getattr(meh, name))}"

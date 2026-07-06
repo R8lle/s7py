@@ -23,6 +23,9 @@ from s7py.constants import (
     PLC_TRANSPORT_OPCUA,
     PLC_TRANSPORT_SNAP7,
     RECORDING_GLYPHS,
+    RECORDING_MODE_COUNT,
+    RECORDING_MODE_UI_LABELS,
+    RECORDING_MODE_UI_TO_ID,
     RECORDING_TICK_MS,
     WORKER_JOIN_TIMEOUT_S,
 )
@@ -45,6 +48,7 @@ from s7py.db import (
     save_plc_schema,
     save_plc_transport,
     save_poll_interval_s,
+    save_recording_mode,
 )
 from s7py.plc import PLC_IO_ERRORS
 from s7py.opcua_connect import OpcUaSecurityConfig
@@ -597,6 +601,17 @@ class ConnectionMixin:
     def _get_poll_interval_s(self: S7PyAppProtocol) -> float:
         return poll_interval_s_from_ms(self._sync_poll_interval_spin())
 
+    def _get_recording_mode(self: S7PyAppProtocol) -> str:
+        return RECORDING_MODE_UI_TO_ID.get(
+            self.var_recording_mode.get().strip(),
+            RECORDING_MODE_COUNT,
+        )
+
+    def _on_recording_mode_changed(self: S7PyAppProtocol) -> None:
+        if self._session_active:
+            return
+        save_recording_mode(self._get_recording_mode())
+
     def _on_start(self: S7PyAppProtocol) -> None:
         if self.cursor_read is None or not self._schema.items:
             return
@@ -610,7 +625,9 @@ class ConnectionMixin:
             )
             return
         poll_interval_s = self._get_poll_interval_s()
+        recording_mode = self._get_recording_mode()
         save_poll_interval_s(poll_interval_s)
+        save_recording_mode(recording_mode)
         save_plc_rack_slot(self._get_plc_rack(), self._get_plc_slot())
         save_plc_db_number(self._get_plc_db_number())
         self._count_gap_hint_shown = False
@@ -631,12 +648,16 @@ class ConnectionMixin:
                 self._get_plc_rack(),
                 self._get_plc_slot(),
                 self._get_plc_db_number(),
+                recording_mode,
             ),
             daemon=True,
         )
         self.write_thread.start()
+        mode_label = RECORDING_MODE_UI_LABELS.get(
+            recording_mode, recording_mode
+        )
         self._log(
-            f"Aufzeichnung gestartet (Hintergrund-Thread, Abfrage alle "
+            f"Aufzeichnung gestartet ({mode_label}, Hintergrund-Thread, Abfrage alle "
             f"{poll_interval_ms_from_s(poll_interval_s)} ms)."
         )
         self._set_connected_ui(True)

@@ -552,6 +552,29 @@ def clamp_poll_interval_ms(milliseconds: object) -> int:
     return poll_interval_ms_from_s(poll_interval_s_from_ms(milliseconds))
 
 
+def normalize_recording_mode(value: object) -> str:
+    from s7py.constants import (
+        RECORDING_MODE_COUNT,
+        RECORDING_MODE_DEFAULT,
+        RECORDING_MODE_EVERY_CYCLE,
+    )
+
+    mode = str(value or "").strip()
+    if mode in (RECORDING_MODE_COUNT, RECORDING_MODE_EVERY_CYCLE):
+        return mode
+    return RECORDING_MODE_DEFAULT
+
+
+def load_recording_mode() -> str:
+    return normalize_recording_mode(load_app_config().get("recording_mode"))
+
+
+def save_recording_mode(mode: str) -> None:
+    config = load_app_config()
+    config["recording_mode"] = normalize_recording_mode(mode)
+    save_app_config(config)
+
+
 def normalize_plot_refresh_ms(value: object) -> int:
     try:
         ms = int(value)

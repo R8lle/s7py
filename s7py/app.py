@@ -45,6 +45,7 @@ from s7py.constants import (
     RECORDING_RESUME_LABEL,
     RECORDING_START_BUTTON_WIDTH,
     RECORDING_START_LABEL,
+    RECORDING_MODE_UI_LABELS,
     TIMESTAMP_FORMAT_LOG,
     TRANSPORT_UI_LABELS,
     WINDOW_MIN_WIDTH,
@@ -63,6 +64,7 @@ from s7py.db import (
     load_plc_transport,
     load_plot_refresh_ms,
     load_poll_interval_s,
+    load_recording_mode,
     poll_interval_ms_from_s,
     resolve_db_path,
     save_auto_reconnect,
@@ -72,6 +74,7 @@ from s7py.db import (
     save_plc_schema,
     save_plot_refresh_ms,
     save_poll_interval_s,
+    save_recording_mode,
     schema_from_config,
 )
 from s7py.log import COUNT_GAP_QUEUE, LIVE_VALUES_QUEUE, LOG_QUEUE, logger
@@ -300,6 +303,7 @@ class S7PyApp(
         self.spin_plc_rack["state"] = tk.DISABLED if connected else tk.NORMAL
         self.spin_plc_slot["state"] = tk.DISABLED if connected else tk.NORMAL
         self.spin_plc_db_number["state"] = tk.DISABLED if connected else tk.NORMAL
+        self.cmb_recording_mode["state"] = "disabled" if connected else "readonly"
         self.cmb_plc_transport["state"] = "disabled" if connected else "readonly"
         self.entry_opcua_endpoint["state"] = tk.DISABLED if connected else tk.NORMAL
         if hasattr(self, "entry_opcua_username"):
@@ -352,6 +356,7 @@ class S7PyApp(
         self.spin_plc_rack["state"] = state
         self.spin_plc_slot["state"] = state
         self.spin_plc_db_number["state"] = state
+        self.cmb_recording_mode["state"] = "disabled"
         self.cmb_plc_transport["state"] = "disabled"
         self.entry_opcua_endpoint["state"] = state
         if hasattr(self, "entry_opcua_username"):
@@ -495,7 +500,21 @@ class S7PyApp(
         self.spin_poll_interval.bind(
             "<FocusOut>", self._on_poll_interval_focus_out, add="+"
         )
-        self.spin_poll_interval.pack(side=tk.LEFT)
+        self.spin_poll_interval.pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Label(plc_params_row, text="Aufzeichnung:").pack(side=tk.LEFT, padx=(0, 4))
+        recording_label = RECORDING_MODE_UI_LABELS[load_recording_mode()]
+        self.var_recording_mode = tk.StringVar(value=recording_label)
+        self.cmb_recording_mode = ttk.Combobox(
+            plc_params_row,
+            textvariable=self.var_recording_mode,
+            values=list(RECORDING_MODE_UI_LABELS.values()),
+            state="readonly",
+            width=20,
+        )
+        self.cmb_recording_mode.pack(side=tk.LEFT)
+        self.cmb_recording_mode.bind(
+            "<<ComboboxSelected>>", lambda _e: self._on_recording_mode_changed()
+        )
 
         sqlite_row = ttk.Frame(top)
         sqlite_row.grid(row=3, column=0, columnspan=12, sticky=tk.EW, pady=(6, 0))
