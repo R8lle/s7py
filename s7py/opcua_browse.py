@@ -24,7 +24,8 @@ def connect_opcua_client(endpoint_url: str) -> Any:
     if not url:
         raise ValueError("OPC-UA-Endpoint fehlt.")
     try:
-        return connect_opcua_sync_client(url)
+        client, _info = connect_opcua_sync_client(url)
+        return client
     except Exception as exc:
         raise wrap_opcua_connect_error(exc, url) from exc
 
