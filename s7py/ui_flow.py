@@ -112,6 +112,8 @@ def center_toplevel_on_parent(
     height: int | None = None,
 ) -> None:
     """Zentriert ein Dialogfenster ueber dem Elternfenster (sichtbarer Bereich)."""
+    # Configure while hidden to avoid placement flicker on macOS.
+    window.withdraw()
     window.update_idletasks()
     parent.update_idletasks()
     win_w = width or max(window.winfo_width(), window.winfo_reqwidth())
@@ -122,8 +124,6 @@ def center_toplevel_on_parent(
     ph = max(parent.winfo_height(), 1)
     x = px + max(0, (pw - win_w) // 2)
     y = py + max(0, (ph - win_h) // 2)
-    screen_w = window.winfo_screenwidth()
-    screen_h = window.winfo_screenheight()
-    x = max(0, min(x, screen_w - win_w))
-    y = max(0, min(y, screen_h - win_h))
     window.geometry(f"{win_w}x{win_h}+{x}+{y}")
+    window.deiconify()
+    window.lift()
