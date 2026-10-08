@@ -2,15 +2,32 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from s7py.opcua_connect import OpcUaSecurityConfig, connect_opcua_sync_client
 from s7py.opcua_import import wrap_opcua_connect_error
+from s7py.schema import OPCUA_DATATYPES
 
 # Standard-OPC-UA-Ordner (Namespace 0).
 OBJECTS_FOLDER_NODEID = "i=85"
 ROOT_FOLDER_NODEID = "i=84"
+
+# OPC-UA VariantType-Name → s7py-Datentyp (OPCUA_DATATYPES).
+_VARIANT_TO_S7PY: dict[str, str] = {
+    "Boolean": "Bool",
+    "SByte": "Byte",
+    "Byte": "Byte",
+    "Int16": "Int",
+    "UInt16": "Int",
+    "Int32": "Int",
+    "UInt32": "DWord",
+    "Int64": "DWord",
+    "UInt64": "DWord",
+    "Float": "Real",
+    "Double": "Real",
+    "String": "String",
+}
 
 
 @dataclass(frozen=True)
@@ -20,6 +37,7 @@ class OpcUaBrowseEntry:
     display_name: str
     node_id: str
     node_class: str
+    data_type: str = ""  # s7py-Typ wenn bekannt, sonst OPC-UA-Typname
 
 
 def connect_opcua_client(
@@ -36,6 +54,35 @@ def connect_opcua_client(
         return client
     except Exception as exc:
         raise wrap_opcua_connect_error(exc, url) from exc
+
+
+def suggested_name_from_node_id(node_id: str, display_name: str = "") -> str:
+    """Lesbaren Variablennamen aus Siemens-NodeId oder DisplayName ableiten.
+
+    Beispiel: ``ns=3;s="DB1"."Motor"."Speed"`` → ``DB1_Motor_Speed``.
+    """
+    import re
+
+    raw = (node_id or "").strip()
+    leaf = (display_name or "").strip().replace(" ", "_")
+    match = re.search(r";s=(.+)$", raw, flags=re.IGNORECASE)
+    if match:
+        body = match.group(1).strip()
+        parts = [p for p in re.findall(r'"([^"]+)"|([^."\s]+)', body) for p in (p[0] or p[1],) if p]
+        if parts:
+            return "_".join(part.replace(" ", "_") for part in parts)
+    return leaf
+
+
+def map_opcua_variant_to_s7py(variant_name: str) -> str:
+    """OPC-UA-VariantType auf s7py-Datentyp abbilden (oder leer)."""
+    key = (variant_name or "").strip()
+    mapped = _VARIANT_TO_S7PY.get(key, "")
+    if mapped in OPCUA_DATATYPES:
+        return mapped
+    if key in OPCUA_DATATYPES:
+        return key
+    return ""
 
 
 def _display_from_ref(ref: Any) -> str:
@@ -97,17 +144,126 @@ def _resolve_browse_node(client: Any, node_id: str | None) -> Any:
         return client.nodes.objects
 
 
+def _read_variable_data_type(client: Any, node_id: str) -> str:
+    """Datentyp einer Variable lesen (s7py-Name bevorzugt, sonst OPC-UA-Name)."""
+    node = client.get_node(node_id)
+    read_vt = getattr(node, "read_data_type_as_variant_type", None)
+    if callable(read_vt):
+        variant = read_vt()
+        raw = getattr(variant, "name", None) or str(variant)
+        mapped = map_opcua_variant_to_s7py(str(raw))
+        return mapped or str(raw)
+    # Fallback: DataType-NodeId BrowseName
+    read_dt = getattr(node, "read_data_type", None)
+    if not callable(read_dt):
+        return ""
+    dt_id = read_dt()
+    dt_node = client.get_node(dt_id)
+    browse = dt_node.read_browse_name()
+    raw = getattr(browse, "Name", None) or str(dt_id)
+    mapped = map_opcua_variant_to_s7py(str(raw))
+    return mapped or str(raw)
+
+
+def _enrich_variable_types(client: Any, entries: list[OpcUaBrowseEntry]) -> list[OpcUaBrowseEntry]:
+    """DataType nur fuer Variable-Knoten nachlesen."""
+    enriched: list[OpcUaBrowseEntry] = []
+    for entry in entries:
+        if entry.node_class != "Variable" or entry.data_type:
+            enriched.append(entry)
+            continue
+        try:
+            data_type = _read_variable_data_type(client, entry.node_id)
+        except Exception:
+            data_type = ""
+        enriched.append(replace(entry, data_type=data_type) if data_type else entry)
+    return enriched
+
+
+def _browse_descriptions(node: Any, refs: int | None = None) -> list[Any]:
+    get_desc = getattr(node, "get_children_descriptions", None)
+    if not callable(get_desc):
+        return []
+    try:
+        if refs is None:
+            raw = get_desc()
+        else:
+            raw = get_desc(refs=refs)
+        return list(raw or [])
+    except TypeError:
+        # Aeltere Signatur ohne refs=
+        if refs is None:
+            return list(get_desc() or [])
+        return []
+    except Exception:
+        return []
+
+
+def _merge_entries(entries: list[OpcUaBrowseEntry]) -> list[OpcUaBrowseEntry]:
+    seen: set[str] = set()
+    merged: list[OpcUaBrowseEntry] = []
+    for entry in entries:
+        if entry.node_id in seen:
+            continue
+        seen.add(entry.node_id)
+        merged.append(entry)
+    merged.sort(key=lambda item: item.display_name.lower())
+    return merged
+
+
 def list_child_nodes(client: Any, node_id: str | None = None) -> list[OpcUaBrowseEntry]:
-    """Listet die Kinder eines Knotens (Standard: Objects-Ordner i=85)."""
+    """Listet die Kinder eines Knotens (Standard: Objects-Ordner i=85).
+
+    Enthaelt auch UDT-/Strukturfelder (Siemens: oft unter Variable mit
+    HasComponent / HasStructuredComponent).
+    """
     node = _resolve_browse_node(client, node_id)
-    # Ein Roundtrip: DisplayName + NodeClass + NodeId (ohne N× ReadAttribute).
     get_desc = getattr(node, "get_children_descriptions", None)
     if callable(get_desc):
-        refs = get_desc()
-        return _entries_from_descriptions(list(refs or []))
+        refs_list = _browse_descriptions(node)
+        # UDT-Felder: zusaetzlich strukturierte Komponenten (Siemens S7-1500).
+        try:
+            from asyncua import ua
+
+            for ref_id in (
+                ua.ObjectIds.HasComponent,
+                ua.ObjectIds.HasStructuredComponent,
+            ):
+                refs_list.extend(_browse_descriptions(node, refs=int(ref_id)))
+        except Exception:
+            pass
+        entries = _merge_entries(_entries_from_descriptions(refs_list))
+        return _enrich_variable_types(client, entries)
 
     entries: list[OpcUaBrowseEntry] = []
-    for child in node.get_children():
+    children: list[Any] = []
+    try:
+        children = list(node.get_children())
+    except Exception:
+        children = []
+    if not children:
+        try:
+            from asyncua import ua
+
+            for ref_id in (
+                ua.ObjectIds.HasComponent,
+                ua.ObjectIds.HasStructuredComponent,
+            ):
+                try:
+                    children.extend(list(node.get_children(refs=int(ref_id))))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    seen_ids: set[str] = set()
+    for child in children:
+        try:
+            cid = child.nodeid.to_string()
+        except Exception:
+            continue
+        if cid in seen_ids:
+            continue
+        seen_ids.add(cid)
         try:
             browse_name = child.read_browse_name()
             display = browse_name.Name if browse_name else str(child.nodeid)
@@ -117,11 +273,18 @@ def list_child_nodes(client: Any, node_id: str | None = None) -> list[OpcUaBrows
             node_class = child.read_node_class().name
         except Exception:
             node_class = "?"
+        data_type = ""
+        if str(node_class) == "Variable":
+            try:
+                data_type = _read_variable_data_type(client, cid)
+            except Exception:
+                data_type = ""
         entries.append(
             OpcUaBrowseEntry(
                 display_name=str(display),
-                node_id=child.nodeid.to_string(),
+                node_id=cid,
                 node_class=str(node_class),
+                data_type=data_type,
             )
         )
     entries.sort(key=lambda entry: entry.display_name.lower())

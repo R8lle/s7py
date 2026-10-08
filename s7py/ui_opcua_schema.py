@@ -32,6 +32,7 @@ from s7py.ui_flow import (
     center_toplevel_on_parent,
     restore_window_geometry,
 )
+from s7py.opcua_browse import suggested_name_from_node_id
 from s7py.ui_opcua_browse import open_opcua_browse_dialog
 
 
@@ -45,13 +46,13 @@ class _OpcUaEditorRow:
     store_var: tk.BooleanVar
 
 
-# Spaltenbreiten (Pixel); NodeId-Spalte (Index 2) dehnt sich mit weight=1.
-_OPCUA_COL_WIDTHS = (180, 100, 240, 44, 56, 44)
+# Spaltenbreiten (Pixel); Name und NodeId dehnen mit.
+_OPCUA_COL_WIDTHS = (320, 100, 220, 44, 56, 44)
 
 
 def _configure_opcua_table_columns(table: ttk.Frame) -> None:
     for col, width in enumerate(_OPCUA_COL_WIDTHS):
-        table.columnconfigure(col, minsize=width, weight=1 if col == 2 else 0)
+        table.columnconfigure(col, minsize=width, weight=1 if col in (0, 2) else 0)
 
 
 def _grid_opcua_row(row_idx: int, widgets: list[tk.Widget]) -> None:
@@ -165,10 +166,15 @@ class OpcUaSchemaMixin:
                 )
                 return
 
-            def on_select(node_id: str, display_name: str) -> None:
+            def on_select(node_id: str, display_name: str, data_type: str = "") -> None:
                 row.node_var.set(node_id)
-                if not row.name_var.get().strip():
-                    row.name_var.set(display_name.replace(" ", "_"))
+                # Immer Pfad inkl. UDT-Feld (z. B. DB1_Motor_Speed).
+                path_hint = (display_name or "").strip().replace(" ", "_")
+                suggested = suggested_name_from_node_id(node_id, path_hint) or path_hint
+                if suggested:
+                    row.name_var.set(suggested)
+                if data_type and data_type in OPCUA_DATATYPES:
+                    row.type_var.set(data_type)
 
             # Gleiche Credentials wie Hauptverbindung (sonst Hang bei Zugriffssteuerung).
             self._persist_opcua_credentials_from_ui()
@@ -182,7 +188,11 @@ class OpcUaSchemaMixin:
                 )
                 return
             open_opcua_browse_dialog(
-                dialog, endpoint, on_select=on_select, security=security
+                dialog,
+                endpoint,
+                on_select=on_select,
+                security=security,
+                focus_node_id=row.node_var.get().strip(),
             )
 
         def refresh_count_choices() -> None:
@@ -216,7 +226,7 @@ class OpcUaSchemaMixin:
             browse_btn = ttk.Button(scroll_frame, text="...", width=3)
             del_btn = ttk.Button(scroll_frame, text="X", width=3)
             widgets: list[tk.Widget] = [
-                ttk.Entry(scroll_frame, textvariable=name_var, width=22),
+                ttk.Entry(scroll_frame, textvariable=name_var, width=40),
                 ttk.Combobox(
                     scroll_frame,
                     textvariable=type_var,
@@ -272,7 +282,24 @@ class OpcUaSchemaMixin:
                 )
             count_var.set("Count")
 
+        def clear_all_rows() -> None:
+            if not rows:
+                return
+            if not messagebox.askyesno(
+                "OPC UA",
+                "Wollen Sie das wirklich?\n\nAlle Variablenzeilen werden geloescht.",
+                parent=dialog,
+            ):
+                return
+            for row in list(rows):
+                remove_row(row)
+            count_var.set("")
+            count_combo["values"] = []
+
         ttk.Button(row_btn, text="+ Zeile", command=lambda: add_row()).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(row_btn, text="Alle loeschen", command=clear_all_rows).pack(
             side=tk.LEFT, padx=(0, 6)
         )
         ttk.Button(row_btn, text="Aus Standard laden", command=load_default_template).pack(
