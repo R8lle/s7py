@@ -7,7 +7,7 @@ Diese Datei listet die Lizenzen von Bibliotheken auf, die s7py als
 Laufzeitabhaengigkeiten einbindet (siehe pyproject.toml / requirements.txt).
 
 s7py-Version: 0.9.0
-Stand: 2026-06-10
+Stand: 2026-10-08
 
 Hinweis zu python-snap7 3.0.0: s7py nutzt die reine Python-Implementierung
 von python-snap7. Die native C-Bibliothek libsnap7 wird nicht mitgeliefert.

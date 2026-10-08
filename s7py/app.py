@@ -48,6 +48,8 @@ from s7py.constants import (
     RECORDING_MODE_UI_LABELS,
     TIMESTAMP_FORMAT_LOG,
     TRANSPORT_UI_LABELS,
+    WINDOW_ID_DB_TABLE,
+    WINDOW_ID_MAIN,
     WINDOW_MIN_WIDTH,
 )
 from s7py.db import (
@@ -65,6 +67,7 @@ from s7py.db import (
     load_plot_refresh_ms,
     load_poll_interval_s,
     load_recording_mode,
+    load_window_geometry,
     poll_interval_ms_from_s,
     resolve_db_path,
     save_auto_reconnect,
@@ -75,6 +78,7 @@ from s7py.db import (
     save_plot_refresh_ms,
     save_poll_interval_s,
     save_recording_mode,
+    save_window_geometry,
     schema_from_config,
 )
 from s7py.log import COUNT_GAP_QUEUE, LIVE_VALUES_QUEUE, LOG_QUEUE, logger
@@ -85,7 +89,7 @@ from s7py.ui_opcua_schema import OpcUaSchemaMixin
 from s7py.ui_plot import PlotMixin
 from s7py.ui_schema import SchemaImportMixin
 from s7py.ui_snap7_schema import Snap7SchemaMixin
-from s7py.ui_flow import FlowFrame
+from s7py.ui_flow import FlowFrame, capture_window_geometry, restore_window_geometry
 
 
 class S7PyApp(
@@ -261,11 +265,23 @@ class S7PyApp(
         )
 
     def _apply_initial_geometry(self):
-        """Setzt initiale Fenstergroesse + Position so, dass Diagramm und
-        Meldungsbox komplett sichtbar sind und das Fenster im sichtbaren
-        Bildschirmbereich landet (zentriert, mit Reserve fuer macOS-Menueleiste).
+        """Setzt Fenstergroesse + Position: zuletzt gespeichert, sonst zentriert.
+
+        Gespeicherte Werte landen im sichtbaren Bildschirmbereich (Reserve fuer
+        macOS-Menueleiste/Dock). Ohne Speicherwert bleibt das bisherige
+        Startlayout (Diagramm und Meldungsbox komplett sichtbar).
         """
         self.update_idletasks()
+        saved = load_window_geometry(WINDOW_ID_MAIN)
+        if restore_window_geometry(
+            self,
+            saved,
+            min_w=WINDOW_MIN_WIDTH,
+            min_h=INITIAL_MINSIZE_H,
+        ):
+            self.minsize(WINDOW_MIN_WIDTH, INITIAL_MINSIZE_H)
+            return
+
         req_w = max(self.winfo_reqwidth(), WINDOW_MIN_WIDTH)
         req_h = max(self.winfo_reqheight(), INITIAL_REQ_HEIGHT_FLOOR)
         screen_w = self.winfo_screenwidth()
@@ -380,6 +396,43 @@ class S7PyApp(
         self._file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Datei", menu=self._file_menu)
         self._rebuild_file_menu()
+
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Hilfe", menu=help_menu)
+        help_menu.add_command(
+            label="Schnellhilfe",
+            command=lambda: self._open_help("kurzanleitung"),
+            accelerator="F1",
+        )
+        help_menu.add_command(
+            label="Bedienungsanleitung",
+            command=lambda: self._open_help("anleitung"),
+        )
+        help_menu.add_separator()
+        help_menu.add_command(
+            label="Info und Lizenzen...",
+            command=self._open_about,
+        )
+        self.bind_all("<F1>", lambda _e: self._open_help("kurzanleitung"))
+        self._help_window = None
+
+    def _open_help(self, name: str = "kurzanleitung") -> None:
+        from s7py.ui_help import open_help
+
+        existing = getattr(self, "_help_window", None)
+        if existing is not None:
+            try:
+                if existing.window.winfo_exists():
+                    existing.show_document(name)
+                    return
+            except tk.TclError:
+                pass
+        self._help_window = open_help(self, name)
+
+    def _open_about(self) -> None:
+        from s7py.ui_about import open_about
+
+        open_about(self)
 
     def _rebuild_file_menu(self):
         """Datei-Menue abhaengig vom Protokoll (Snap7 / OPC UA) aufbauen."""
@@ -687,6 +740,18 @@ class S7PyApp(
         save_plc_rack_slot(self.var_plc_rack.get(), self.var_plc_slot.get())
         save_plc_db_number(self.var_plc_db_number.get())
         save_auto_reconnect(bool(self.var_auto_reconnect.get()))
+        geometry = capture_window_geometry(self)
+        if geometry:
+            save_window_geometry(WINDOW_ID_MAIN, geometry)
+        table_win = getattr(self, "_db_table_window", None)
+        if table_win is not None:
+            try:
+                if table_win.winfo_exists():
+                    table_geom = capture_window_geometry(table_win)
+                    if table_geom:
+                        save_window_geometry(WINDOW_ID_DB_TABLE, table_geom)
+            except tk.TclError:
+                pass
         if self._get_plc_transport() == PLC_TRANSPORT_OPCUA:
             self._persist_opcua_credentials_from_ui()
         if self.write_thread is not None:

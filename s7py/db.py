@@ -30,6 +30,7 @@ from s7py.constants import (
     PLC_TRANSPORT_SNAP7,
     SQLITE_WRITE_BASE_DELAY_S,
     SQLITE_WRITE_MAX_ATTEMPTS,
+    WINDOW_GEOMETRY_KEY,
 )
 from s7py.log import log_msg
 from s7py.plc import get_db_size
@@ -660,6 +661,34 @@ def save_auto_reconnect(enabled: bool) -> None:
     """Auto-Reconnect-Einstellung speichern."""
     config = load_app_config()
     config["auto_reconnect"] = bool(enabled)
+    save_app_config(config)
+
+
+def load_window_geometry(window_id: str) -> str:
+    """Gespeicherte Fenstergroesse/-position laden (``WxH+X+Y`` oder leer)."""
+    from s7py.ui_flow import parse_geometry
+
+    data = load_app_config().get(WINDOW_GEOMETRY_KEY)
+    if not isinstance(data, dict):
+        return ""
+    geometry = str(data.get(str(window_id), "") or "").strip()
+    return geometry if parse_geometry(geometry) is not None else ""
+
+
+def save_window_geometry(window_id: str, geometry: str) -> None:
+    """Fenstergroesse/-position fuer den naechsten Start speichern."""
+    from s7py.ui_flow import parse_geometry
+
+    window_id = str(window_id or "").strip()
+    geometry = str(geometry or "").strip()
+    if not window_id or parse_geometry(geometry) is None:
+        return
+    config = load_app_config()
+    windows = config.get(WINDOW_GEOMETRY_KEY)
+    if not isinstance(windows, dict):
+        windows = {}
+    windows[window_id] = geometry
+    config[WINDOW_GEOMETRY_KEY] = windows
     save_app_config(config)
 
 

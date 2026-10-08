@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "s7py"
 version = "0.9.0"
-description = "SPS lesen, SQLite speichern, Live-Diagramm (Snap7; OPC UA geplant)"
+description = "SPS-Daten lesen (Snap7/OPC UA), in SQLite speichern und live diagrammieren"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -21,6 +21,11 @@ build = ["pyinstaller>=6.0"]
 opcua = ["asyncua>=1.0"]
 dev = ["pytest>=8.0"]
 
+[project.urls]
+Homepage = "https://github.com/R8lle/s7py"
+Repository = "https://github.com/R8lle/s7py"
+Issues = "https://github.com/R8lle/s7py/issues"
+
 [project.scripts]
 s7py = "s7py.__main__:main"
 
@@ -30,6 +35,9 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["s7py*"]
+
+[tool.setuptools.package-data]
+s7py = ["help/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

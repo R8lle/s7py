@@ -8,15 +8,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from s7py.constants import APP_DIR, DB_CONFIG_PATH
+from s7py.constants import APP_DIR, DB_CONFIG_PATH, WINDOW_ID_OPCUA_VARS
 from s7py.db import (
     create_connection,
     create_database,
+    load_window_geometry,
     migrate_database,
     resolve_db_path,
     sanitize_sqlite_save_path,
     sqlite_save_dialog_params,
     save_plc_schema,
+    save_window_geometry,
 )
 from s7py.schema import (
     DbItem,
@@ -25,7 +27,11 @@ from s7py.schema import (
     schema_from_opcua_manual,
 )
 from s7py.ui_base import S7PyAppProtocol
-from s7py.ui_flow import center_toplevel_on_parent
+from s7py.ui_flow import (
+    capture_window_geometry,
+    center_toplevel_on_parent,
+    restore_window_geometry,
+)
 from s7py.ui_opcua_browse import open_opcua_browse_dialog
 
 
@@ -77,6 +83,14 @@ class OpcUaSchemaMixin:
         dialog.transient(self)
         dialog.grab_set()
         dialog.minsize(900, 420)
+
+        def close_dialog() -> None:
+            geometry = capture_window_geometry(dialog)
+            if geometry:
+                save_window_geometry(WINDOW_ID_OPCUA_VARS, geometry)
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
 
         outer = ttk.Frame(dialog, padding=12)
         outer.pack(fill="both", expand=True)
@@ -336,7 +350,7 @@ class OpcUaSchemaMixin:
                         "Schema gespeichert. Datenbank wurde nicht geaendert.",
                         parent=dialog,
                     )
-                    dialog.destroy()
+                    close_dialog()
                     return
                 db_path = resolve_db_path(sanitize_sqlite_save_path(db_path))
                 if self.conn_read is not None:
@@ -362,10 +376,12 @@ class OpcUaSchemaMixin:
                 f"Konfiguration: {DB_CONFIG_PATH}",
                 parent=dialog,
             )
-            dialog.destroy()
+            close_dialog()
 
-        ttk.Button(btn_row, text="Abbrechen", command=dialog.destroy).pack(
+        ttk.Button(btn_row, text="Abbrechen", command=close_dialog).pack(
             side=tk.RIGHT, padx=(8, 0)
         )
         ttk.Button(btn_row, text="Speichern", command=on_save).pack(side=tk.RIGHT)
-        center_toplevel_on_parent(dialog, self, width=980, height=520)
+        saved = load_window_geometry(WINDOW_ID_OPCUA_VARS)
+        if not restore_window_geometry(dialog, saved, min_w=900, min_h=420):
+            center_toplevel_on_parent(dialog, self, width=980, height=520)

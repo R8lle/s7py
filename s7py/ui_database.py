@@ -14,12 +14,17 @@ from tkinter import filedialog, messagebox, ttk
 
 from s7py.charts import invalidate_table_columns_cache
 from s7py.ui_base import S7PyAppProtocol
-from s7py.ui_flow import center_toplevel_on_parent
+from s7py.ui_flow import (
+    capture_window_geometry,
+    center_toplevel_on_parent,
+    restore_window_geometry,
+)
 from s7py.constants import (
     APP_DIR,
     PLOT_MAX_ROWS_DEFAULT,
     TABLE_VIEW_ALL_CONFIRM_ROWS,
     TIMESTAMP_FORMAT_FILE,
+    WINDOW_ID_DB_TABLE,
 )
 from s7py.db import (
     clear_projects_table,
@@ -30,12 +35,14 @@ from s7py.db import (
     fetch_projects_for_csv,
     fetch_projects_stats,
     format_projects_stats_suffix,
+    load_window_geometry,
     migrate_database,
     projects_row_count,
     resolve_csv_export_columns,
     resolve_db_path,
     normalize_db_path,
     save_last_db_path,
+    save_window_geometry,
     trim_projects_keep_last,
     vacuum_sqlite_database,
 )
@@ -542,8 +549,14 @@ class DatabaseMixin:
         self._db_table_window = win
         win.title("s7py — Datenbank-Tabelle")
         win.minsize(640, 320)
+        saved = load_window_geometry(WINDOW_ID_DB_TABLE)
+        if not restore_window_geometry(win, saved, min_w=640, min_h=320):
+            center_toplevel_on_parent(win, self, width=900, height=520)
 
         def on_close() -> None:
+            geometry = capture_window_geometry(win)
+            if geometry:
+                save_window_geometry(WINDOW_ID_DB_TABLE, geometry)
             self._db_table_window = None
             win.destroy()
 

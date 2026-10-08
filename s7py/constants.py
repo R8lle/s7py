@@ -89,6 +89,14 @@ TRANSPORT_UI_TO_ID: dict[str, str] = {
 WINDOW_MIN_WIDTH = 720
 MACOS_MENU_BAR_HEIGHT = 30
 MACOS_DOCK_HEIGHT = 80
+# Schluessel in s7py_db.json fuer gespeicherte Fenstergeometrien.
+WINDOW_GEOMETRY_KEY = "window_geometry"
+WINDOW_ID_MAIN = "main"
+WINDOW_ID_DB_TABLE = "db_table"
+WINDOW_ID_SNAP7_VARS = "snap7_vars"
+WINDOW_ID_OPCUA_VARS = "opcua_vars"
+WINDOW_ID_HELP = "help"
+WINDOW_ID_ABOUT = "about"
 
 # Erwartbare Fehler bei SPS-I/O (Lesen, Verbinden, Trennen).
 # Kein breites "except Exception" — Programmierfehler sollen durchfallen.

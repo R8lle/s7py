@@ -2,3 +2,5 @@ include LICENSE
 include LICENSE_THIRD_PARTY.txt
 include s7py_db.json.example
 include README.md
+recursive-include s7py/help *.md
+recursive-include docs *.md

@@ -34,11 +34,11 @@ else
     echo "Virtuelle Umgebung .venv existiert bereits."
 fi
 
-if [[ -f ../.venv/bin/activate ]] && [[ "${PYSNAP_FORCE_LOCAL_VENV:-}" != "1" ]]; then
+if [[ -f ../.venv/bin/activate ]] && [[ "${S7PY_FORCE_LOCAL_VENV:-}" != "1" ]]; then
     echo ""
     echo "Hinweis: Workspace-venv unter ../.venv gefunden."
     echo "  Empfohlen (eine venv fuer ganz VSC_Snap7):  ../setup-s7py.sh"
-    echo "  Lokale s7py/.venv erzwingen:               PYSNAP_FORCE_LOCAL_VENV=1 ./setup.sh"
+    echo "  Lokale s7py/.venv erzwingen:               S7PY_FORCE_LOCAL_VENV=1 ./setup.sh"
     echo ""
 fi
 

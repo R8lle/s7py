@@ -1,7 +1,5 @@
 # s7py — Backlog
 
-Geplante Erweiterungen (noch nicht umgesetzt).
+Stand 0.9.0: Kernfunktionen (Snap7, OPC UA, SQLite, Live-Diagramm, Hilfe/Info) sind umgesetzt.
 
----
-
-*(Derzeit keine offenen Eintraege — OPC UA Benutzer/Passwort ist umgesetzt.)*
+Neue Ideen und Verbesserungen bitte als Issue unter https://github.com/R8lle/s7py/issues sammeln.
