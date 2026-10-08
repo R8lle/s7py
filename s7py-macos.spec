@@ -19,6 +19,7 @@ hiddenimports = [
     "s7py.app",
     "s7py.about",
     "s7py.selftest",
+    "s7py.macos_local_network",
     "s7py.charts",
     "s7py.constants",
     "s7py.db",
@@ -111,8 +112,12 @@ app = BUNDLE(
     coll,
     name="s7py.app",
     icon=str(ICON_ICNS) if ICON_ICNS.is_file() else None,
-    bundle_identifier="io.github.r8lle.s7py",
+    # Frische Bundle-ID noetig, wenn macOS LAN-Dialog ohne Eintrag „verschluckt“
+    # (laesst sich nicht zuruecksetzen — neue ID = neuer Dialog).
+    bundle_identifier="de.sps-prog.s7py",
     info_plist={
+        "CFBundleName": "s7py",
+        "CFBundleDisplayName": "s7py",
         "CFBundleShortVersionString": "0.9.0",
         "CFBundleVersion": "0.9.0",
         "NSHighResolutionCapable": True,

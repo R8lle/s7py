@@ -59,9 +59,23 @@ class OpcUaBackend(AbstractPlcBackend):
         self.disconnect()
         sec = security if security is not None else self._security
         try:
-            self._client, self._connection_info = connect_opcua_sync_client(
-                url, security=sec
-            )
+            def _do_connect():
+                return connect_opcua_sync_client(url, security=sec)
+
+            try:
+                from s7py.macos_local_network import (
+                    connect_with_local_network_retry,
+                    is_frozen_macos_app,
+                )
+
+                if is_frozen_macos_app():
+                    self._client, self._connection_info = connect_with_local_network_retry(
+                        _do_connect
+                    )
+                else:
+                    self._client, self._connection_info = _do_connect()
+            except ImportError:
+                self._client, self._connection_info = _do_connect()
         except Exception as exc:
             self._client = None
             self._connection_info = None

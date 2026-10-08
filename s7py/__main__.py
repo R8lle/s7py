@@ -13,6 +13,18 @@ def main(argv: list[str] | None = None) -> None:
         report = args[1] if len(args) > 1 else "selftest.txt"
         raise SystemExit(run_selftest(report))
 
+    # macOS-.app: LAN-Privacy-Dialog frueh anstossen (sonst Errno 65 ohne Eintrag).
+    try:
+        from s7py.macos_local_network import (
+            is_frozen_macos_app,
+            trigger_local_network_privacy_alert,
+        )
+
+        if is_frozen_macos_app():
+            trigger_local_network_privacy_alert()
+    except Exception:
+        pass
+
     import matplotlib
 
     matplotlib.use("TkAgg")

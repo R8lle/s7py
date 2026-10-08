@@ -46,6 +46,12 @@ fi
 
 xattr -cr "${APP}" 2>/dev/null || true
 
+# Developer ID + hardened runtime: noetig fuer „Lokales Netzwerk“ auf fremden Macs.
+# Optional: S7PY_NOTARY_PROFILE=... fuer Notarisierung (Gatekeeper).
+if [[ "${S7PY_SKIP_CODESIGN:-}" != "1" ]]; then
+    bash "${ROOT}/packaging/macos/sign-and-notarize.sh" "${APP}"
+fi
+
 VERSION="$(python -c "import s7py; print(s7py.__version__)")"
 ARCH="$(uname -m)"
 DMG_STAGE="${ROOT}/dist/dmg-stage"
@@ -60,6 +66,16 @@ hdiutil create \
     -ov -format UDZO \
     "${DMG_OUT}"
 rm -rf "${DMG_STAGE}"
+
+# DMG ebenfalls signieren (falls Identity greifbar).
+if [[ "${S7PY_SKIP_CODESIGN:-}" != "1" ]]; then
+    IDENTITY="${S7PY_CODESIGN_IDENTITY:-Developer ID Application: Ralf Kauschus (Z2FRLAU83M)}"
+    codesign --force --sign "${IDENTITY}" --timestamp "${DMG_OUT}" 2>/dev/null || true
+    if [[ -n "${S7PY_NOTARY_PROFILE:-}" ]]; then
+        xcrun notarytool submit "${DMG_OUT}" --keychain-profile "${S7PY_NOTARY_PROFILE}" --wait
+        xcrun stapler staple "${DMG_OUT}" || true
+    fi
+fi
 
 echo ""
 echo "Build fertig:"

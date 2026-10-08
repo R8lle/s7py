@@ -135,10 +135,24 @@ def format_opcua_connect_error(exc: BaseException, endpoint: str) -> str:
                 "eingetragen (TIA „Zugriffssteuerung“), Endpoint-URL und Port, "
                 "sowie ob OPC UA auf der SPS laeuft.\n\n"
             )
+        local_net_hint = ""
+        errno = getattr(exc, "errno", None)
+        if errno == 65 or "no route to host" in msg_lower:
+            local_net_hint = (
+                "Unter macOS: „Lokales Netzwerk“ fuer s7py.\n"
+                "1) Beim Dialog „Erlauben“ waehlen (falls er erscheint).\n"
+                "2) Danach erneut auf Verbinden klicken — der erste Versuch "
+                "scheitert oft noch, waehrend der Dialog offen ist.\n"
+                "3) Fehlt s7py unter Systemeinstellungen → Datenschutz → "
+                "Lokales Netzwerk, App beenden und neu starten.\n"
+                "Terminal/Cursor koennen bereits duerfen, die .app braucht "
+                "eine eigene Freigabe.\n\n"
+            )
         return (
             f"OPC-UA-Server nicht erreichbar: {url}\n\n"
             "Kein OPC-UA-Server antwortet (SPS aus, falsche Adresse/Port, "
             "OPC UA in TIA nicht aktiviert oder Netzwerk blockiert?).\n\n"
+            f"{local_net_hint}"
             f"{timeout_hint}"
             f"Details ({type_name}): {exc}"
         )

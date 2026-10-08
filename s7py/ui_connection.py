@@ -156,6 +156,7 @@ class ConnectionMixin:
                 )
                 return
             self._persist_opcua_credentials_from_ui()
+
         self._set_connecting_ui(True)
         self.status_var.set(f"Verbinde mit {target} ...")
         self._log(
