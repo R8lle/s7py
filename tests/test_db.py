@@ -158,11 +158,13 @@ class TestCreateDatabase:
 
 class TestDbPathStorage:
     def test_normalize_db_path_collapses_double_db_suffix(self):
+        from pathlib import Path
+
         from s7py.db import normalize_db_path
 
         assert normalize_db_path("s7py_opcua.db.db") == "s7py_opcua.db"
-        assert normalize_db_path("data/foo.db.db") == "data/foo.db"
-        assert normalize_db_path("/tmp/test.db.db") == "/tmp/test.db"
+        assert Path(normalize_db_path("data/foo.db.db")) == Path("data/foo.db")
+        assert Path(normalize_db_path("/tmp/test.db.db")) == Path("/tmp/test.db")
         assert normalize_db_path("s7py.db") == "s7py.db"
 
     def test_save_last_db_path_strips_double_db_suffix(self, tmp_path, monkeypatch):

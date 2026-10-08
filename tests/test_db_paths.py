@@ -1,6 +1,7 @@
 """Tests fuer SQLite-Pfad-Hilfsfunktionen."""
 
 import sys
+from pathlib import Path
 
 from s7py.db import (
     normalize_db_path,
@@ -11,7 +12,7 @@ from s7py.db import (
 
 def test_normalize_db_path_removes_double_extension() -> None:
     assert normalize_db_path("measure.db.db") == "measure.db"
-    assert normalize_db_path("/tmp/data/s7py.db.db") == "/tmp/data/s7py.db"
+    assert Path(normalize_db_path("/tmp/data/s7py.db.db")) == Path("/tmp/data/s7py.db")
 
 
 def test_sanitize_sqlite_save_path_adds_extension() -> None:
