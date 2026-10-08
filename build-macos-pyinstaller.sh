@@ -24,8 +24,10 @@ python -m s7py.about --stamp || true
 ICON_PNG="${ROOT}/assets/s7py-robot-icon.png"
 ICON_ICNS="${ROOT}/assets/s7py.icns"
 if [[ -f "${ICON_PNG}" ]]; then
-    ICONSET="$(mktemp -d /tmp/s7py-pyi-icon-XXXXXX).iconset"
-    cleanup_iconset() { rm -rf "${ICONSET%.iconset}" "${ICONSET}" 2>/dev/null || true; }
+    ICON_TMP="$(mktemp -d /tmp/s7py-pyi-icon-XXXXXX)"
+    ICONSET="${ICON_TMP}/s7py.iconset"
+    mkdir -p "${ICONSET}"
+    cleanup_iconset() { rm -rf "${ICON_TMP}" 2>/dev/null || true; }
     trap cleanup_iconset EXIT
     for size in 16 32 128 256 512; do
         sips -z "${size}" "${size}" "${ICON_PNG}" --out "${ICONSET}/icon_${size}x${size}.png" >/dev/null
