@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import tkinter as tk
+import webbrowser
 from tkinter import ttk
 
 from s7py import help as manual
@@ -88,18 +89,125 @@ def _configure_tags(text: tk.Text) -> None:
         background=_HELP_ACCENT_LIGHT,
         foreground=_HELP_ACCENT,
     )
+    text.tag_configure("bold", font=("TkDefaultFont", 11, "bold"), foreground=_HELP_FG)
+    text.tag_configure(
+        "link",
+        font=("TkDefaultFont", 11, "underline"),
+        foreground=_HELP_ACCENT,
+    )
+    mono = ("Menlo", 10) if tk.TkVersion >= 8.5 else ("Courier", 10)
+    text.tag_configure(
+        "table_header",
+        font=(mono[0], mono[1], "bold"),
+        foreground=_HELP_ACCENT,
+        background=_HELP_ACCENT_LIGHT,
+        lmargin1=8,
+        lmargin2=8,
+        spacing1=2,
+        spacing3=2,
+    )
+    text.tag_configure(
+        "table_row",
+        font=mono,
+        foreground=_HELP_FG,
+        background=_HELP_CODE_BG,
+        lmargin1=8,
+        lmargin2=8,
+        spacing3=1,
+    )
     text.tag_configure("search", background=_HELP_SEARCH_BG, foreground=_HELP_FG)
 
 
+_INLINE_TOKEN = re.compile(
+    r"(`[^`]+`)"
+    r"|(\*\*[^*]+\*\*)"
+    r"|(\[[^\]]+\]\([^)]+\))"
+)
+
+
 def _insert_inline(text: tk.Text, line: str, tag: str) -> None:
-    """Schreibt eine Zeile und markiert ``code``-Fragmente."""
-    parts = re.split(r"(`[^`]+`)", line)
-    for part in parts:
-        if part.startswith("`") and part.endswith("`") and len(part) >= 2:
-            text.insert(tk.END, part[1:-1], ("inline_code", tag))
+    """Schreibt eine Zeile mit ``code``, **fett** und [Links](url)."""
+    pos = 0
+    for match in _INLINE_TOKEN.finditer(line):
+        if match.start() > pos:
+            text.insert(tk.END, line[pos : match.start()], tag)
+        token = match.group(0)
+        if token.startswith("`") and token.endswith("`") and len(token) >= 2:
+            text.insert(tk.END, token[1:-1], ("inline_code", tag))
+        elif token.startswith("**") and token.endswith("**") and len(token) >= 4:
+            text.insert(tk.END, token[2:-2], ("bold", tag))
+        elif token.startswith("[") and "](" in token:
+            label, _, rest = token[1:].partition("](")
+            url = rest[:-1] if rest.endswith(")") else rest
+            start = text.index(tk.END)
+            text.insert(tk.END, label, ("link", tag))
+            end = text.index(tk.END)
+            # URL am Tag hinterlegen; Klick oeffnet Browser (siehe HelpWindow).
+            text.tag_add(f"url:{url}", start, end)
         else:
-            text.insert(tk.END, part, tag)
+            text.insert(tk.END, token, tag)
+        pos = match.end()
+    if pos < len(line):
+        text.insert(tk.END, line[pos:], tag)
     text.insert(tk.END, "\n", tag)
+
+
+def _is_table_row(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2
+
+
+def _is_table_separator(line: str) -> bool:
+    """Markdown-Trenner wie ``|---|---|``."""
+    if not _is_table_row(line):
+        return False
+    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", c or "") for c in cells)
+
+
+def _table_cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _plain_inline(value: str) -> str:
+    plain = re.sub(r"`([^`]+)`", r"\1", value)
+    plain = re.sub(r"\*\*([^*]+)\*\*", r"\1", plain)
+    plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", plain)
+    return plain
+
+
+def _insert_table(text: tk.Text, rows: list[str]) -> None:
+    """Rendert eine Markdown-Tabelle als ausgerichteten Mono-Block."""
+    body_rows = [r for r in rows if not _is_table_separator(r)]
+    if not body_rows:
+        return
+    parsed = [_table_cells(r) for r in body_rows]
+    cols = max(len(r) for r in parsed)
+    for row in parsed:
+        while len(row) < cols:
+            row.append("")
+    widths = [0] * cols
+    for row in parsed:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(_plain_inline(cell)))
+
+    for idx, row in enumerate(parsed):
+        tag = "table_header" if idx == 0 else "table_row"
+        for i, cell in enumerate(row):
+            if i:
+                text.insert(tk.END, "  ", tag)
+            plain = _plain_inline(cell)
+            pad = widths[i] - len(plain)
+            # Code-Spans farbig; restlichen Text (inkl. Header) plain.
+            for part in re.split(r"(`[^`]+`)", cell):
+                if part.startswith("`") and part.endswith("`") and len(part) >= 2:
+                    text.insert(tk.END, part[1:-1], ("inline_code", tag))
+                elif part:
+                    text.insert(tk.END, _plain_inline(part), tag)
+            if pad > 0:
+                text.insert(tk.END, " " * pad, tag)
+        text.insert(tk.END, "\n", tag)
+    text.insert(tk.END, "\n", "body")
 
 
 def render_markdown(text: tk.Text, markdown: str) -> dict[str, str]:
@@ -109,6 +217,8 @@ def render_markdown(text: tk.Text, markdown: str) -> dict[str, str]:
     anchors: dict[str, str] = {}
     in_code = False
     code_lines: list[str] = []
+    lines = markdown.splitlines()
+    i = 0
 
     def flush_code() -> None:
         nonlocal code_lines
@@ -116,7 +226,8 @@ def render_markdown(text: tk.Text, markdown: str) -> dict[str, str]:
             text.insert(tk.END, "\n".join(code_lines) + "\n", "code")
             code_lines = []
 
-    for raw in markdown.splitlines():
+    while i < len(lines):
+        raw = lines[i]
         line = raw.rstrip()
         if line.startswith("```"):
             if in_code:
@@ -124,9 +235,19 @@ def render_markdown(text: tk.Text, markdown: str) -> dict[str, str]:
                 in_code = False
             else:
                 in_code = True
+            i += 1
             continue
         if in_code:
             code_lines.append(raw)
+            i += 1
+            continue
+
+        if _is_table_row(line):
+            table_rows: list[str] = []
+            while i < len(lines) and _is_table_row(lines[i].rstrip()):
+                table_rows.append(lines[i].rstrip())
+                i += 1
+            _insert_table(text, table_rows)
             continue
 
         heading = re.match(r"^(#{1,3})\s+(.*)$", line)
@@ -143,23 +264,28 @@ def render_markdown(text: tk.Text, markdown: str) -> dict[str, str]:
                 text.insert(tk.END, band + "\n", tag)
             else:
                 text.insert(tk.END, title + "\n", tag)
+            i += 1
             continue
 
         bullet = re.match(r"^[-*]\s+(.*)$", line)
         if bullet:
             _insert_inline(text, f"• {bullet.group(1)}", "bullet")
+            i += 1
             continue
 
         number = re.match(r"^(\d+)\.\s+(.*)$", line)
         if number:
             _insert_inline(text, f"{number.group(1)}. {number.group(2)}", "number")
+            i += 1
             continue
 
         if not line.strip():
             text.insert(tk.END, "\n", "body")
+            i += 1
             continue
 
         _insert_inline(text, line, "body")
+        i += 1
 
     flush_code()
     text.configure(state=tk.DISABLED)
@@ -238,6 +364,9 @@ class HelpWindow:
         self.text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         body_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         _configure_tags(self.text)
+        self.text.tag_bind("link", "<Button-1>", self._open_link)
+        self.text.tag_bind("link", "<Enter>", lambda _e: self.text.configure(cursor="hand2"))
+        self.text.tag_bind("link", "<Leave>", lambda _e: self.text.configure(cursor=""))
         split.add(body, weight=3)
 
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -270,6 +399,13 @@ class HelpWindow:
         index = self._anchors.get(label)
         if index:
             self.text.see(index)
+
+    def _open_link(self, event: tk.Event) -> None:
+        index = self.text.index(f"@{event.x},{event.y}")
+        for tag in self.text.tag_names(index):
+            if tag.startswith("url:"):
+                webbrowser.open(tag[4:])
+                break
 
     def find_next(self) -> None:
         query = self.search.get().strip()
