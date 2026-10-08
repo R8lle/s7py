@@ -23,7 +23,7 @@ Empfehlung: zuerst **Weg A** testen, bei Login-Pflicht **Weg C**, fuer Dauerbetr
 - TIA Portal mit geöffnetem Projekt (S7-1500)
 - SPS und PC mit s7py im gleichen Netzwerk
 - Projekt kompiliert, Hardware-Konfiguration in die SPS geladen
-- In s7py: `asyncua` installiert (`pip install asyncua` in der s7py-Python-Umgebung)
+- In s7py: OPC UA nutzen (in den fertigen Windows-/macOS-Paketen bereits enthalten; Entwickler: Extra `opcua`)
 
 ---
 

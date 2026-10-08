@@ -4,26 +4,22 @@ s7py ist ein Desktop-Werkzeug, um Prozesswerte einer Siemens-SPS zu lesen, in ei
 
 ## Installation und Start
 
-Voraussetzung: **Python 3.11** oder neuer.
+### Fertige Pakete (empfohlen)
 
-```bash
-cd s7py
-./setup.sh    # Mac/Linux: venv + Abhaengigkeiten
-./run.sh
-```
+Python und Bibliotheken sind **im Paket enthalten** — nichts separat installieren, keine Kommandozeile nötig.
 
-Windows: `setup.bat`, danach `run.bat`.
+| System | Datei | Vorgehen |
+|--------|--------|----------|
+| Windows | `s7py-*-setup.exe` | Doppelklick, Assistent folgen |
+| macOS | `s7py-*-macos.dmg` | Öffnen, App nach Programme ziehen |
 
-Optional OPC UA:
+Download: [GitHub Releases](https://github.com/R8lle/s7py/releases).
 
-```bash
-source .venv/bin/activate
-pip install -e ".[opcua]"
-```
+Danach s7py starten → Protokoll wählen → verbinden → **Start**.
 
-Tests: `./test.sh`.
+### Hinweis für Entwickler
 
-Portable ZIP und PyInstaller-Builds sind in der [README](../../README.md) beschrieben.
+Aus dem Quellcode wird mit Python 3.11+ gebaut (venv, PyInstaller). Das betrifft nur den Build-Rechner. Die fertige App bringt ihre Laufzeitumgebung mit; Endanwender sehen davon nichts.
 
 ## Oberfläche
 
@@ -40,10 +36,10 @@ Fenstergrößen und Positionen (Hauptfenster, Variablen, Tabelle) werden beim Sc
 
 ### Verbindung
 
-- **SPS-IP**: Adresse der CPU (Standardplatzhalter `192.168.0.1`).
+- **SPS-IP**: Adresse der CPU.
 - **Rack / Slot**: typisch Rack 0, Slot 1 bei S7-1200/1500 (je nach Hardware prüfen).
 - **SPS-DB**: Nummer des Datenbausteins, aus dem gelesen wird.
-- Port **102** muss erreichbar sein. `python-snap7` 3.x ist reines Python — keine separate `libsnap7`.
+- Port **102** muss erreichbar sein.
 
 ### Variablen
 
@@ -52,23 +48,23 @@ Fenstergrößen und Positionen (Hauptfenster, Variablen, Tabelle) werden beim Sc
 - TIA-Datenbaustein importieren oder Zeilen manuell anlegen.
 - Spalten: Name, Datentyp, Byte.Bit, Aktiv.
 - **Count**-Feld: steigender Zähler in der SPS; bei Lücken warnt die Oberfläche.
-- Speichern aktualisiert `s7py_db.json` und kann die SQLite-Struktur anpassen.
+- Speichern aktualisiert die lokale Konfiguration und kann die SQLite-Struktur anpassen.
 
 ## OPC UA
 
 ### Verbindung
 
 - Endpoint im Format `opc.tcp://host:4840`.
-- Optional Benutzer/Passwort (werden lokal verschlüsselt in der Konfiguration abgelegt).
-- Zertifikatsbetrieb: siehe TIA-Anleitung im Projekt unter `docs/TIA_OPCUA_S7-1500.md`.
+- Optional Benutzer/Passwort (werden lokal verschlüsselt abgelegt).
+- Bei aktivierter Zugriffssteuerung in TIA: Rolle mit **Browse** und **Read**, danach Hardware und Software laden.
+- Ausführlich: `docs/TIA_OPCUA_S7-1500.md` im Projekt.
 
 ### Variablen
 
 *Datei → OPC UA Variablen (manuell)…*
 
 - Name, Typ, NodeId, Aktiv.
-- Browse-Dialog hilft beim Finden von Nodes am Server.
-- Abhaengigkeit: Paket `asyncua` (`pip install -e ".[opcua]"`).
+- Browse-Dialog hilft beim Finden von Nodes am Server (gleiche Anmeldung wie die Hauptverbindung).
 
 ## Datenbank und Diagramm
 
@@ -80,14 +76,14 @@ Fenstergrößen und Positionen (Hauptfenster, Variablen, Tabelle) werden beim Sc
 
 ## Gespeicherte Konfiguration
 
-Datei `s7py_db.json` im Anwendungsordner (Entwicklung: Projektroot; gebündelte App: nutzerspezifisches Datenverzeichnis):
+Datei `s7py_db.json` (Entwicklung: Projektordner; gebündelte App: Anwendungsdaten des Benutzers):
 
 - letzte Datenbank und SPS-/OPC-UA-Parameter
 - Snap7- und OPC-UA-Schema getrennt
 - Abfrageintervall, Diagramm-Aktualisierung, Auto-Reconnect
 - Fenstergeometrien
 
-Vorlage: `s7py_db.json.example`. Die Datei gehört nicht ins Repository.
+Die Datei gehört nicht ins Repository.
 
 ## Diagnose
 
@@ -95,6 +91,7 @@ Vorlage: `s7py_db.json.example`. Die Datei gehört nicht ins Repository.
 - *Hilfe → Info und Lizenzen*: Version, Build, Systemangaben kopieren.
 - Count-Lücken: Abfrageintervall verringern oder SPS-Last prüfen.
 - Verbindungsabbrüche: Auto-Reconnect in der Bedienleiste.
+- OPC UA „verbunden, aber Objects leer“: Browse/Read in TIA-Zugriffssteuerung und Server-Interface prüfen.
 
 ## Lizenz
 

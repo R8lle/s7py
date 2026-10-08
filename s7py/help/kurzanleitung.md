@@ -4,7 +4,7 @@ s7py liest Messwerte von einer Siemens-SPS (**Snap7** oder **OPC UA**), speicher
 
 ## Start
 
-1. Programm starten (`./run.sh` oder `s7py`).
+1. Programm starten (Windows: nach Setup; macOS: App aus dem DMG bzw. Programme).
 2. **Protokoll** wählen: *Snap7* oder *OPC UA*.
 3. Verbindungswerte eintragen (IP bzw. Endpoint, bei Bedarf Benutzer/Passwort).
 4. **Verbinden** → **Start** für die Aufzeichnung.
@@ -19,11 +19,13 @@ s7py liest Messwerte von einer Siemens-SPS (**Snap7** oder **OPC UA**), speicher
 ## OPC UA
 
 1. **OPC-UA-Endpoint** eintragen (z. B. `opc.tcp://192.168.0.1:4840`).
-2. Bei Bedarf **Benutzer** und **Passwort**.
+2. Bei Bedarf **Benutzer** und **Passwort** (wie in TIA angelegt).
 3. Unter *Datei → OPC UA Variablen (manuell)…* NodeIds und Typen festlegen (Browse möglich).
 4. **Verbinden**, dann **Start**.
 
-Schritt-für-Schritt für TIA Portal (S7-1500): [docs/TIA_OPCUA_S7-1500.md](../../docs/TIA_OPCUA_S7-1500.md) im Projektordner.
+Wenn der Browse-Baum leer bleibt: in TIA unter *OPC UA-Kommunikation → Zugriffssteuerung* **Browse** und **Read** für die Benutzerrolle setzen und laden.
+
+Schritt-für-Schritt für TIA Portal (S7-1500): Dokument `docs/TIA_OPCUA_S7-1500.md` im Projektordner.
 
 ## Aufzeichnung und Diagramm
 
@@ -40,6 +42,6 @@ Schritt-für-Schritt für TIA Portal (S7-1500): [docs/TIA_OPCUA_S7-1500.md](../.
 
 ## Gespeicherte Einstellungen
 
-Lokal in `s7py_db.json` (nicht im Git): letzte Datenbank, IP/Endpoint, Schema, Abfrageintervall, Fenstergrößen und -positionen.
+Lokal in `s7py_db.json`: letzte Datenbank, IP/Endpoint, Schema, Abfrageintervall, Fenstergrößen und -positionen.
 
 Die ausführliche **Bedienungsanleitung** steht unter *Hilfe → Bedienungsanleitung* (Taste **F1** öffnet die Schnellhilfe).

@@ -1,0 +1,94 @@
+# macOS-DMG mit gebuendelter App. Nur manuell:
+# Actions → „macOS-Paket“ → Run workflow
+# oder: gh workflow run package-macos.yml
+name: macOS-Paket
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e ".[dev,opcua,build]"
+
+      - name: Build stamp and icon
+        run: |
+          mkdir -p packaging/build
+          python -m s7py.about --stamp
+          cat s7py/_build.py || true
+          if [[ -f assets/s7py-robot-icon.png ]]; then
+            ICONSET="$(mktemp -d)/s7py.iconset"
+            mkdir -p "$ICONSET"
+            for size in 16 32 128 256 512; do
+              sips -z "$size" "$size" assets/s7py-robot-icon.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+              sips -z $((size * 2)) $((size * 2)) assets/s7py-robot-icon.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+            done
+            iconutil -c icns "$ICONSET" -o assets/s7py.icns
+          fi
+
+      - name: PyInstaller + DMG
+        run: |
+          pyinstaller --noconfirm --clean s7py-macos.spec
+          xattr -cr dist/s7py.app || true
+          VERSION="$(python -c 'import s7py; print(s7py.__version__)')"
+          STAGE=dist/dmg-stage
+          OUT="dist/s7py-${VERSION}-macos.dmg"
+          rm -rf "$STAGE" "$OUT"
+          mkdir -p "$STAGE"
+          cp -R dist/s7py.app "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "s7py ${VERSION}" -srcfolder "$STAGE" -ov -format UDZO "$OUT"
+          rm -rf "$STAGE"
+          ls -la dist/*.dmg
+
+      - name: Self-test of the packaged app
+        timeout-minutes: 3
+        run: |
+          APP="dist/s7py.app/Contents/MacOS/s7py"
+          set +e
+          "$APP" --selftest "$PWD/selftest.txt"
+          code=$?
+          set -e
+          if [[ -f selftest.txt ]]; then cat selftest.txt; else echo "keine selftest.txt"; exit 1; fi
+          grep -q "SELFTEST OK" selftest.txt
+          test "$code" -eq 0
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: s7py-macos-dmg
+          path: |
+            dist/s7py-*-macos.dmg
+            selftest.txt
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(python -c 'import s7py; print(s7py.__version__)')"
+          TAG="v${VERSION}-macos"
+          DMG="$(ls dist/s7py-*-macos.dmg | head -1)"
+          if [[ -z "$DMG" ]]; then echo "DMG fehlt"; exit 1; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG" --clobber
+          else
+            gh release create "$TAG" "$DMG" \
+              --title "s7py ${VERSION} macOS" \
+              --notes "macOS-DMG ohne Kommandozeile. DMG oeffnen, App nach Programme ziehen, starten."
+          fi

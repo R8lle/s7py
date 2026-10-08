@@ -16,35 +16,43 @@ from s7py.ui_flow import (
 )
 
 
-# Wie einvoice-de: Dokument immer hell (auch bei macOS Dark Mode lesbar).
+# Dokumentfarben wie einvoice-de (helles Dokument, blaue Kapitelbaender).
 _HELP_BG = "#FFFFFF"
-_HELP_FG = "#000000"
-_HELP_CODE_BG = "#F3F4F6"
+_HELP_FG = "#1F2933"
+_HELP_ACCENT = "#1565C0"
+_HELP_ACCENT_LIGHT = "#E3EEFB"
+_HELP_CODE_BG = "#F3F6FA"
 _HELP_TOC_BG = "#F8F9FA"
 _HELP_TOC_SELECT_BG = "#D0E3F7"
 _HELP_SEARCH_BG = "#FFF3A3"
+_HELP_H2_PAD = 160  # Leerzeichen fuer sichtbares Kapitelband in Tk
 
 
 def _configure_tags(text: tk.Text) -> None:
     text.tag_configure(
         "h1",
         font=("TkDefaultFont", 18, "bold"),
-        foreground=_HELP_FG,
+        foreground=_HELP_ACCENT,
         spacing1=8,
         spacing3=10,
     )
+    # Kapitelband: weisse Schrift auf Accent-Blau (wie einvoice-de h2-Tabellen).
     text.tag_configure(
         "h2",
         font=("TkDefaultFont", 14, "bold"),
-        foreground=_HELP_FG,
-        spacing1=14,
-        spacing3=6,
+        foreground="#FFFFFF",
+        background=_HELP_ACCENT,
+        spacing1=16,
+        spacing3=10,
+        lmargin1=6,
+        lmargin2=6,
+        rmargin=6,
     )
     text.tag_configure(
         "h3",
         font=("TkDefaultFont", 12, "bold"),
-        foreground=_HELP_FG,
-        spacing1=10,
+        foreground=_HELP_ACCENT,
+        spacing1=12,
         spacing3=4,
     )
     text.tag_configure("body", font=("TkDefaultFont", 11), foreground=_HELP_FG, spacing3=4)
@@ -77,8 +85,8 @@ def _configure_tags(text: tk.Text) -> None:
     text.tag_configure(
         "inline_code",
         font=("Menlo", 10),
-        background=_HELP_CODE_BG,
-        foreground=_HELP_FG,
+        background=_HELP_ACCENT_LIGHT,
+        foreground=_HELP_ACCENT,
     )
     text.tag_configure("search", background=_HELP_SEARCH_BG, foreground=_HELP_FG)
 
@@ -127,7 +135,14 @@ def render_markdown(text: tk.Text, markdown: str) -> dict[str, str]:
             title = heading.group(2).strip()
             tag = f"h{level}"
             anchors[title] = text.index(tk.END)
-            text.insert(tk.END, title + "\n", tag)
+            if level == 2:
+                # Auffuellende Leerzeichen → Hintergrund wirkt wie Kapitelband.
+                band = f"  {title}"
+                if len(band) < _HELP_H2_PAD:
+                    band = band + (" " * (_HELP_H2_PAD - len(band)))
+                text.insert(tk.END, band + "\n", tag)
+            else:
+                text.insert(tk.END, title + "\n", tag)
             continue
 
         bullet = re.match(r"^[-*]\s+(.*)$", line)

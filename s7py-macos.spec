@@ -99,8 +99,9 @@ app = BUNDLE(
     icon=str(ICON_ICNS) if ICON_ICNS.is_file() else None,
     bundle_identifier="io.github.r8lle.s7py",
     info_plist={
-        "CFBundleShortVersionString": "0.1.0",
-        "CFBundleVersion": "0.1.0",
+        "CFBundleShortVersionString": "0.9.0",
+        "CFBundleVersion": "0.9.0",
         "NSHighResolutionCapable": True,
+        "LSMinimumSystemVersion": "11.0",
     },
 )

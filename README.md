@@ -9,19 +9,32 @@ Unterstützte Protokolle:
 
 Keine Cloud-Pflicht: Konfiguration und Messdaten bleiben auf dem Rechner.
 
-## Voraussetzungen
+## Installation (Endanwender)
 
-- Python 3.11 oder neuer
-- Netzwerkzugriff auf die SPS
-- Für OPC UA: `pip install -e ".[opcua]"` (bzw. Extra beim Setup)
+Python und Abhängigkeiten sind in den Installern **mit eingebaut**. Sie brauchen kein Python zu installieren und keine Kommandozeile.
 
-`python-snap7` 3.x ist **reines Python** — keine separate Snap7-DLL oder `libsnap7` nötig.
+| System | Paket | Quelle |
+|--------|--------|--------|
+| **Windows** | `s7py-*-setup.exe` | [GitHub Releases](https://github.com/R8lle/s7py/releases) (`v*-windows`) |
+| **macOS** | `s7py-*-macos.dmg` | [GitHub Releases](https://github.com/R8lle/s7py/releases) (`v*-macos`) |
 
-## Schnellstart
+**Windows:** Setup doppelklicken → Assistent folgen (optional Desktop-Verknüpfung).
+
+**macOS:** DMG öffnen → `s7py.app` nach **Programme** ziehen → starten. Beim ersten Start ggf. unter *Systemeinstellungen → Datenschutz & Sicherheit* erlauben (unsignierte Builds).
+
+Danach im Programm: Protokoll wählen → Verbindungswerte → **Verbinden** → **Start**.
+
+Hilfe im Menü *Hilfe* (Taste **F1** für die Schnellhilfe). OPC UA an S7-1500: [docs/TIA_OPCUA_S7-1500.md](docs/TIA_OPCUA_S7-1500.md).
+
+## Entwicklung (Quellcode)
+
+Nur für Entwickler / Beitragende. Endanwender nutzen die Installer oben.
+
+Voraussetzung zum Bauen aus dem Quellbaum: **Python 3.11+** (läuft nur lokal in einer venv; der Nutzer der fertigen App sieht davon nichts).
 
 ```bash
 cd s7py
-./setup.sh    # Mac/Linux: venv + pip install -e ".[dev]"
+./setup.sh    # Mac/Linux: venv + pip install -e ".[dev,opcua]"
 ./run.sh
 ```
 
@@ -30,62 +43,21 @@ setup.bat     # Windows
 run.bat
 ```
 
-Im Programm: Protokoll wählen → Verbindungswerte → **Verbinden** → **Start**.
+Tests: `./test.sh` bzw. `python -m pytest`.
 
-Hilfe im Menü *Hilfe* (Taste **F1** für die Schnellhilfe). Quellen: [s7py/help/kurzanleitung.md](s7py/help/kurzanleitung.md) und [s7py/help/anleitung.md](s7py/help/anleitung.md). OPC UA an S7-1500: [docs/TIA_OPCUA_S7-1500.md](docs/TIA_OPCUA_S7-1500.md).
+`python-snap7` 3.x ist reines Python — keine separate Snap7-DLL nötig.
 
-## Tests
+Lokale Einstellungen: `s7py_db.json` (in `.gitignore`). Vorlage: [`s7py_db.json.example`](s7py_db.json.example).
 
-```bash
-./test.sh
-```
+## Installer selbst bauen
 
-Windows (nach `setup.bat`, venv aktiv):
+| Ziel | Befehl / Aktion | Ergebnis |
+|------|-----------------|----------|
+| Windows-Setup | `build-windows.bat` oder Actions → **Windows-Paket** | `s7py-<version>-setup.exe` |
+| macOS-DMG | `./build-macos-pyinstaller.sh` oder Actions → **macOS-Paket** | `s7py-<version>-macos.dmg` |
+| Portable ZIP | `./package-portable.sh` / `package-portable.bat` | Quellarchiv (Python nötig) |
 
-```bat
-.venv\Scripts\activate
-python -m pytest
-```
-
-## Lokale Konfiguration
-
-`s7py_db.json` speichert **lokal** letzte DB-Pfade, SPS-/OPC-UA-Parameter, Schema und Fenstergeometrien. Die Datei steht in `.gitignore` und wird nicht ins Repository gepackt.
-
-Pfade werden relativ zum s7py-Ordner abgelegt. Vorlage: [`s7py_db.json.example`](s7py_db.json.example).
-
-## Windows-Installation (ohne Kommandozeile)
-
-Fertiges Setup von den [GitHub Releases](https://github.com/R8lle/s7py/releases) laden (`s7py-*-setup.exe`), doppelklicken und dem Assistenten folgen. Optional Desktop-Verknüpfung. Kein Python auf dem Ziel-PC nötig.
-
-Lokal auf einem Windows-PC bauen (Inno Setup 6 + Python):
-
-```bat
-build-windows.bat
-```
-
-oder in PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
-```
-
-Ergebnis: `dist\installer\s7py-<version>-setup.exe`.
-
-Auf GitHub: Actions → **Windows-Paket** → Run workflow (baut, testet und legt die EXE als Artifact sowie Release ab).
-
-## Portable Quellpaket / weitere Builds
-
-| Ziel | Befehl | Ergebnis |
-|------|--------|----------|
-| ZIP (Mac/Linux) | `./package-portable.sh` | Quellarchiv + `setup.sh` (Python nötig) |
-| ZIP (Windows) | `package-portable.bat` | Quellarchiv + `setup.bat` (Python nötig) |
-| macOS-App | `./build-macos-pyinstaller.sh` | `.app`-Bundle (PyInstaller) |
-
-Build-Kennung festschreiben (für Installer):
-
-```bash
-python -m s7py.about --stamp
-```
+Build-Kennung: `python -m s7py.about --stamp`.
 
 ## Lizenz
 
