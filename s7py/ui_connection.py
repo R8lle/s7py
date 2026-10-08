@@ -76,6 +76,12 @@ class ConnectionMixin:
             return self._get_opcua_endpoint()
         return self.var_ip.get().strip() or DEFAULT_PLC_IP
 
+    def _persist_connection_settings_from_ui(self: S7PyAppProtocol) -> None:
+        """SPS-IP / OPC-UA-Endpoint aus der UI speichern (auch ohne Verbinden)."""
+        save_last_plc_ip(self.var_ip.get())
+        save_opcua_endpoint(self._get_opcua_endpoint())
+        save_plc_transport(self._get_plc_transport())
+
     def _ensure_plc_backend(self: S7PyAppProtocol) -> None:
         transport = self._get_plc_transport()
         if self.plc_backend.transport == transport:
@@ -278,7 +284,12 @@ class ConnectionMixin:
             self._set_connected_ui(False)
             return
 
-        save_last_plc_ip(ip)
+        if self._get_plc_transport() == PLC_TRANSPORT_OPCUA:
+            save_opcua_endpoint(ip)
+            save_last_plc_ip(self.var_ip.get())
+        else:
+            save_last_plc_ip(ip)
+            save_opcua_endpoint(self._get_opcua_endpoint())
         self._session_active = True
         self._reconnecting = False
         self._reconnect_attempt = 0

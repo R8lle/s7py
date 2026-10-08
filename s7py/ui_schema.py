@@ -10,12 +10,24 @@ from typing import Optional
 
 from s7py.ui_base import S7PyAppProtocol
 from s7py.constants import APP_DIR, DB_CONFIG_PATH
-from s7py.db import migrate_database, save_plc_db_number, save_plc_schema
+from s7py.db import (
+    load_app_config,
+    migrate_database,
+    save_plc_db_number,
+    save_plc_schema,
+    schema_from_config,
+)
 from s7py.schema import PlcDbSchema, parse_tia_data_block_file
 
 
 class SchemaImportMixin:
     """SPS-Schema auf die UI anwenden und TIA-Datenbausteine importieren."""
+
+    def _reload_schema_for_transport(self: S7PyAppProtocol, transport: str) -> None:
+        """Schema fuer den gewaehlten Transport aus s7py_db.json neu laden."""
+        self._app_config = load_app_config()
+        schema = schema_from_config(self._app_config, transport=transport)
+        self._apply_plc_schema(schema)
 
     def _apply_schema_to_ui(self: S7PyAppProtocol) -> None:
         """Aktualisiert Live-Anzeige, Diagramm-Kurvenauswahl und Beschriftungen."""

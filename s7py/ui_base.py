@@ -68,6 +68,9 @@ class S7PyAppProtocol(Protocol):
     # --- Schema ---
     _schema: PlcDbSchema
     _app_config: dict[str, Any]
+    def _apply_plc_schema(self, schema: PlcDbSchema) -> None: ...
+    def _reload_schema_for_transport(self, transport: str) -> None: ...
+    def _persist_connection_settings_from_ui(self) -> None: ...
 
     # --- Tk-Variablen (Bedienleiste) ---
     var_ip: tk.StringVar

@@ -16,23 +16,71 @@ from s7py.ui_flow import (
 )
 
 
+# Wie einvoice-de: Dokument immer hell (auch bei macOS Dark Mode lesbar).
+_HELP_BG = "#FFFFFF"
+_HELP_FG = "#000000"
+_HELP_CODE_BG = "#F3F4F6"
+_HELP_TOC_BG = "#F8F9FA"
+_HELP_TOC_SELECT_BG = "#D0E3F7"
+_HELP_SEARCH_BG = "#FFF3A3"
+
+
 def _configure_tags(text: tk.Text) -> None:
-    text.tag_configure("h1", font=("TkDefaultFont", 18, "bold"), spacing1=8, spacing3=10)
-    text.tag_configure("h2", font=("TkDefaultFont", 14, "bold"), spacing1=14, spacing3=6)
-    text.tag_configure("h3", font=("TkDefaultFont", 12, "bold"), spacing1=10, spacing3=4)
-    text.tag_configure("body", font=("TkDefaultFont", 11), spacing3=4)
-    text.tag_configure("bullet", font=("TkDefaultFont", 11), lmargin1=20, lmargin2=36, spacing3=2)
-    text.tag_configure("number", font=("TkDefaultFont", 11), lmargin1=20, lmargin2=36, spacing3=2)
+    text.tag_configure(
+        "h1",
+        font=("TkDefaultFont", 18, "bold"),
+        foreground=_HELP_FG,
+        spacing1=8,
+        spacing3=10,
+    )
+    text.tag_configure(
+        "h2",
+        font=("TkDefaultFont", 14, "bold"),
+        foreground=_HELP_FG,
+        spacing1=14,
+        spacing3=6,
+    )
+    text.tag_configure(
+        "h3",
+        font=("TkDefaultFont", 12, "bold"),
+        foreground=_HELP_FG,
+        spacing1=10,
+        spacing3=4,
+    )
+    text.tag_configure("body", font=("TkDefaultFont", 11), foreground=_HELP_FG, spacing3=4)
+    text.tag_configure(
+        "bullet",
+        font=("TkDefaultFont", 11),
+        foreground=_HELP_FG,
+        lmargin1=20,
+        lmargin2=36,
+        spacing3=2,
+    )
+    text.tag_configure(
+        "number",
+        font=("TkDefaultFont", 11),
+        foreground=_HELP_FG,
+        lmargin1=20,
+        lmargin2=36,
+        spacing3=2,
+    )
     text.tag_configure(
         "code",
         font=("Menlo", 10) if tk.TkVersion >= 8.5 else ("Courier", 10),
-        background="#F3F6FA",
+        background=_HELP_CODE_BG,
+        foreground=_HELP_FG,
         lmargin1=12,
         lmargin2=12,
         spacing1=4,
         spacing3=6,
     )
-    text.tag_configure("inline_code", font=("Menlo", 10), background="#EEF2F7")
+    text.tag_configure(
+        "inline_code",
+        font=("Menlo", 10),
+        background=_HELP_CODE_BG,
+        foreground=_HELP_FG,
+    )
+    text.tag_configure("search", background=_HELP_SEARCH_BG, foreground=_HELP_FG)
 
 
 def _insert_inline(text: tk.Text, line: str, tag: str) -> None:
@@ -134,7 +182,19 @@ class HelpWindow:
         split.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         toc_frame = ttk.Frame(split)
-        self.toc = tk.Listbox(toc_frame, exportselection=False, width=28)
+        self.toc = tk.Listbox(
+            toc_frame,
+            exportselection=False,
+            width=28,
+            background=_HELP_TOC_BG,
+            foreground=_HELP_FG,
+            selectbackground=_HELP_TOC_SELECT_BG,
+            selectforeground=_HELP_FG,
+            activestyle="none",
+            highlightthickness=0,
+            borderwidth=1,
+            relief=tk.SOLID,
+        )
         toc_scroll = ttk.Scrollbar(toc_frame, orient=tk.VERTICAL, command=self.toc.yview)
         self.toc.configure(yscrollcommand=toc_scroll.set)
         self.toc.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -143,7 +203,21 @@ class HelpWindow:
         split.add(toc_frame, weight=1)
 
         body = ttk.Frame(split)
-        self.text = tk.Text(body, wrap=tk.WORD, relief=tk.FLAT, padx=8, pady=8)
+        # Dokument: dunkel auf weiss — wie einvoice-de QTextBrowser.
+        self.text = tk.Text(
+            body,
+            wrap=tk.WORD,
+            relief=tk.FLAT,
+            padx=8,
+            pady=8,
+            background=_HELP_BG,
+            foreground=_HELP_FG,
+            insertbackground=_HELP_FG,
+            selectbackground=_HELP_TOC_SELECT_BG,
+            selectforeground=_HELP_FG,
+            highlightthickness=0,
+            borderwidth=0,
+        )
         body_scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=self.text.yview)
         self.text.configure(yscrollcommand=body_scroll.set)
         self.text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -195,7 +269,6 @@ class HelpWindow:
         if pos:
             end = f"{pos}+{len(query)}c"
             self.text.tag_add("search", pos, end)
-            self.text.tag_configure("search", background="#FFF3A3")
             self.text.mark_set(tk.INSERT, end)
             self.text.see(pos)
         self.text.configure(state=tk.DISABLED)

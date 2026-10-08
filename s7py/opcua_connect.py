@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import urlparse
 
 from s7py.opcua_import import (
@@ -11,7 +13,23 @@ from s7py.opcua_import import (
     import_opcua_client_class,
     wrap_opcua_connect_error,
 )
-from s7py.constants import OPCUA_SESSION_TIMEOUT_MS
+from s7py.constants import (
+    OPCUA_REQUEST_TIMEOUT_S,
+    OPCUA_SESSION_TIMEOUT_MS,
+    OPCUA_SYNC_WRAPPER_TIMEOUT_S,
+)
+
+
+@contextmanager
+def _quiet_asyncua_logs() -> Iterator[None]:
+    """asyncua loggt fehlgeschlagene CloseSession als Traceback — Konsole ruhig halten."""
+    logger = logging.getLogger("asyncua")
+    previous = logger.level
+    logger.setLevel(logging.CRITICAL)
+    try:
+        yield
+    finally:
+        logger.setLevel(previous)
 
 NONE_POLICY_URI = "http://opcfoundation.org/UA/SecurityPolicy#None"
 
@@ -318,15 +336,24 @@ def _dispose_client(client: Any | None) -> None:
     """Client freigeben; beendet den asyncua-ThreadLoop."""
     if client is None:
         return
-    try:
-        client.disconnect()
-    except Exception:
-        pass
+    with _quiet_asyncua_logs():
+        try:
+            client.disconnect()
+        except Exception:
+            pass
 
 
 def _create_client(url: str) -> Any:
     Client = import_opcua_client_class()
-    client = Client(url)
+    try:
+        client = Client(
+            url,
+            timeout=OPCUA_REQUEST_TIMEOUT_S,
+            sync_wrapper_timeout=OPCUA_SYNC_WRAPPER_TIMEOUT_S,
+        )
+    except TypeError:
+        # Aeltere asyncua-Versionen oder Test-Fakes ohne Timeout-Parameter.
+        client = Client(url)
     _prepare_opcua_client(client)
     return client
 
@@ -335,6 +362,10 @@ def _prepare_opcua_client(client: Any) -> None:
     """Client-Defaults fuer SPS-Server (z. B. S7-1500 Session-Timeout 30s)."""
     aio = client.aio_obj
     aio.session_timeout = OPCUA_SESSION_TIMEOUT_MS
+    # Sync-Wrapper: ThreadLoop.timeout steuert futur.result(); Standard war 120s.
+    tloop = getattr(client, "tloop", None)
+    if tloop is not None and getattr(tloop, "timeout", None) is not None:
+        tloop.timeout = OPCUA_SYNC_WRAPPER_TIMEOUT_S
 
 
 def _connect_with_selected_endpoint(
@@ -374,40 +405,41 @@ def connect_opcua_sync_client(
     url = (endpoint_url or "").strip()
     sec = security if security is not None else load_opcua_security_config()
 
-    if sec.has_credentials():
+    with _quiet_asyncua_logs():
+        if sec.has_credentials():
+            client = _create_client(url)
+            try:
+                endpoints = client.connect_and_get_server_endpoints()
+                return _connect_with_selected_endpoint(client, endpoints, sec)
+            except OpcUaConnectionError:
+                _dispose_client(client)
+                raise
+            except Exception as exc:
+                _dispose_client(client)
+                raise wrap_opcua_connect_error(exc, url) from exc
+
+        client = _create_client(url)
+        try:
+            client.connect()
+            return client, _quick_anonymous_connection_info(url)
+        except OpcUaConnectionError:
+            _dispose_client(client)
+            raise
+        except Exception as exc:
+            if not _is_security_policy_error(exc):
+                _dispose_client(client)
+                raise wrap_opcua_connect_error(exc, url) from exc
+            _dispose_client(client)
+
         client = _create_client(url)
         try:
             endpoints = client.connect_and_get_server_endpoints()
-            return _connect_with_selected_endpoint(client, endpoints, sec)
+            return _connect_with_selected_endpoint(
+                client, endpoints, sec, after_policy_error=True
+            )
         except OpcUaConnectionError:
             _dispose_client(client)
             raise
         except Exception as exc:
             _dispose_client(client)
             raise wrap_opcua_connect_error(exc, url) from exc
-
-    client = _create_client(url)
-    try:
-        client.connect()
-        return client, _quick_anonymous_connection_info(url)
-    except OpcUaConnectionError:
-        _dispose_client(client)
-        raise
-    except Exception as exc:
-        if not _is_security_policy_error(exc):
-            _dispose_client(client)
-            raise wrap_opcua_connect_error(exc, url) from exc
-        _dispose_client(client)
-
-    client = _create_client(url)
-    try:
-        endpoints = client.connect_and_get_server_endpoints()
-        return _connect_with_selected_endpoint(
-            client, endpoints, sec, after_policy_error=True
-        )
-    except OpcUaConnectionError:
-        _dispose_client(client)
-        raise
-    except Exception as exc:
-        _dispose_client(client)
-        raise wrap_opcua_connect_error(exc, url) from exc

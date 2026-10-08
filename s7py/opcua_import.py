@@ -128,10 +128,18 @@ def format_opcua_connect_error(exc: BaseException, endpoint: str) -> str:
             f"Details ({type_name}): {exc}"
         )
     if _looks_like_unreachable_server(exc):
+        timeout_hint = ""
+        if isinstance(exc, TimeoutError) or "timeout" in msg_lower or "timed out" in msg_lower:
+            timeout_hint = (
+                "Bei Timeout zusaetzlich pruefen: Benutzer/Passwort in s7py "
+                "eingetragen (TIA „Zugriffssteuerung“), Endpoint-URL und Port, "
+                "sowie ob OPC UA auf der SPS laeuft.\n\n"
+            )
         return (
             f"OPC-UA-Server nicht erreichbar: {url}\n\n"
             "Kein OPC-UA-Server antwortet (SPS aus, falsche Adresse/Port, "
             "OPC UA in TIA nicht aktiviert oder Netzwerk blockiert?).\n\n"
+            f"{timeout_hint}"
             f"Details ({type_name}): {exc}"
         )
     return f"OPC-UA-Verbindung fehlgeschlagen ({type_name}): {exc}"

@@ -71,7 +71,6 @@ from s7py.db import (
     poll_interval_ms_from_s,
     resolve_db_path,
     save_auto_reconnect,
-    save_opcua_credentials,
     save_plc_db_number,
     save_plc_rack_slot,
     save_plc_schema,
@@ -494,11 +493,17 @@ class S7PyApp(
         self.var_ip = tk.StringVar(value=self._initial_plc_ip)
         self.entry_ip = ttk.Entry(transport_row, textvariable=self.var_ip, width=18)
         self.entry_ip.pack(side=tk.LEFT, padx=(0, 12))
+        self.entry_ip.bind(
+            "<FocusOut>", lambda _e: self._persist_connection_settings_from_ui()
+        )
 
         self.lbl_opcua_endpoint = ttk.Label(transport_row, text="OPC-UA-Endpoint:")
         self.var_opcua_endpoint = tk.StringVar(value=load_opcua_endpoint())
         self.entry_opcua_endpoint = ttk.Entry(
             transport_row, textvariable=self.var_opcua_endpoint, width=36
+        )
+        self.entry_opcua_endpoint.bind(
+            "<FocusOut>", lambda _e: self._persist_connection_settings_from_ui()
         )
 
         self.opcua_auth_row = ttk.Frame(top)
@@ -740,6 +745,7 @@ class S7PyApp(
         save_plc_rack_slot(self.var_plc_rack.get(), self.var_plc_slot.get())
         save_plc_db_number(self.var_plc_db_number.get())
         save_auto_reconnect(bool(self.var_auto_reconnect.get()))
+        self._persist_connection_settings_from_ui()
         geometry = capture_window_geometry(self)
         if geometry:
             save_window_geometry(WINDOW_ID_MAIN, geometry)

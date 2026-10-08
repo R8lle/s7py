@@ -92,15 +92,22 @@ class TestPrepareOpcUaClient:
             session_timeout = 3_600_000
 
         class FakeClient:
-            def __init__(self, _url: str) -> None:
+            def __init__(self, _url: str, **_kwargs: object) -> None:
                 self.aio_obj = FakeAio()
+                self.kwargs = _kwargs
 
         monkeypatch.setattr("s7py.opcua_connect.import_opcua_client_class", lambda: FakeClient)
-        from s7py.constants import OPCUA_SESSION_TIMEOUT_MS
+        from s7py.constants import (
+            OPCUA_REQUEST_TIMEOUT_S,
+            OPCUA_SESSION_TIMEOUT_MS,
+            OPCUA_SYNC_WRAPPER_TIMEOUT_S,
+        )
         from s7py.opcua_connect import _create_client
 
         client = _create_client("opc.tcp://127.0.0.1:4840")
         assert client.aio_obj.session_timeout == OPCUA_SESSION_TIMEOUT_MS
+        assert client.kwargs["timeout"] == OPCUA_REQUEST_TIMEOUT_S
+        assert client.kwargs["sync_wrapper_timeout"] == OPCUA_SYNC_WRAPPER_TIMEOUT_S
 
     def test_apply_client_identity_sets_user_and_password(self):
         class FakeAio:

@@ -79,6 +79,9 @@ PLC_TRANSPORTS = (PLC_TRANSPORT_SNAP7, PLC_TRANSPORT_OPCUA)
 DEFAULT_OPCUA_ENDPOINT = "opc.tcp://127.0.0.1:4840"
 # S7-1500 begrenzt Session-Timeout oft auf 30s; asyncua-Standard waere 1h.
 OPCUA_SESSION_TIMEOUT_MS = 30_000
+# asyncua-Request-Timeout (Sekunden) und Sync-Wrapper-Timeout (sonst 120s Hang).
+OPCUA_REQUEST_TIMEOUT_S = 8.0
+OPCUA_SYNC_WRAPPER_TIMEOUT_S = 15.0
 TRANSPORT_UI_LABELS: dict[str, str] = {
     PLC_TRANSPORT_SNAP7: "Snap7",
     PLC_TRANSPORT_OPCUA: "OPC UA",

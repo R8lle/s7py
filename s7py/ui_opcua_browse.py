@@ -7,13 +7,26 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable
 
+from s7py.constants import OPCUA_SYNC_WRAPPER_TIMEOUT_S
 from s7py.opcua_browse import (
+    OBJECTS_FOLDER_NODEID,
     OpcUaBrowseEntry,
     connect_opcua_client,
     disconnect_opcua_client,
     list_child_nodes,
+    list_root_nodes,
 )
+from s7py.opcua_connect import OpcUaSecurityConfig
 from s7py.ui_flow import center_toplevel_on_parent
+
+_EMPTY_OBJECTS_HINT = (
+    "Unter „Objects“ sind keine Knoten sichtbar.\n\n"
+    "Haeufige Ursachen an der S7-1500 / TIA:\n"
+    "  • Kein OPC-UA-Server-Interface freigegeben bzw. keine Variablen publiziert\n"
+    "  • Zugriffssteuerung: Benutzer ohne Browse-Recht\n"
+    "  • Falscher Benutzer/Passwort (Session ok, aber Adressraum leer)\n\n"
+    "Pruefen Sie in TIA: OPC UA → Server-Interfaces und Benutzerrechte."
+)
 
 
 def open_opcua_browse_dialog(
@@ -21,6 +34,7 @@ def open_opcua_browse_dialog(
     endpoint: str,
     *,
     on_select: Callable[[str, str], None],
+    security: OpcUaSecurityConfig | None = None,
 ) -> None:
     """Server-Browser oeffnen; ``on_select(node_id, display_name)`` bei Uebernahme."""
 
@@ -37,6 +51,7 @@ def open_opcua_browse_dialog(
 
     endpoint_var = tk.StringVar(value=endpoint.strip())
     status_var = tk.StringVar(value="Nicht verbunden.")
+    sec = security
 
     top = ttk.Frame(outer)
     top.grid(row=0, column=0, sticky="ew", pady=(0, 8))
@@ -113,37 +128,80 @@ def open_opcua_browse_dialog(
             if not is_variable:
                 tree.insert(iid, "end", iid=f"{iid}__ph", text="")
 
-    def populate_root() -> None:
+    def apply_tree(
+        root_entries: list[OpcUaBrowseEntry],
+        objects_entries: list[OpcUaBrowseEntry],
+    ) -> None:
         tree.delete(*tree.get_children())
         node_id_by_iid.clear()
         name_by_iid.clear()
-        root_iid = next_iid()
-        node_id_by_iid[root_iid] = None
-        name_by_iid[root_iid] = "Objects"
-        tree.insert(
-            "",
-            "end",
-            iid=root_iid,
-            text="Objects",
-            values=("", "Folder"),
-            tags=("branch",),
-        )
-        try:
-            entries = list_child_nodes(client_holder[0], None)
-        except Exception as exc:
-            messagebox.showerror("OPC UA Browse", str(exc), parent=dialog)
-            set_status("Browse fehlgeschlagen.")
-            return
-        insert_entries(root_iid, entries)
-        tree.item(root_iid, open=True)
-        set_status(f"Verbunden: {endpoint_var.get().strip()}")
+
+        # Root-Kinder (Objects / Types / Views), sonst nur Objects.
+        top_entries = root_entries or [
+            OpcUaBrowseEntry("Objects", OBJECTS_FOLDER_NODEID, "Object")
+        ]
+        for entry in top_entries:
+            iid = next_iid()
+            node_id_by_iid[iid] = entry.node_id
+            name_by_iid[iid] = entry.display_name
+            is_objects = entry.node_id == OBJECTS_FOLDER_NODEID or entry.display_name == "Objects"
+            tree.insert(
+                "",
+                "end",
+                iid=iid,
+                text=entry.display_name,
+                values=(entry.node_id, entry.node_class),
+                tags=("branch",),
+            )
+            if is_objects:
+                if objects_entries:
+                    insert_entries(iid, objects_entries)
+                else:
+                    tree.insert(iid, "end", iid=f"{iid}__ph", text="")
+                tree.item(iid, open=True)
+            else:
+                tree.insert(iid, "end", iid=f"{iid}__ph", text="")
+
+        endpoint = endpoint_var.get().strip()
+        if objects_entries:
+            set_status(
+                f"Verbunden: {endpoint} — {len(objects_entries)} Knoten unter Objects"
+            )
+        else:
+            set_status(
+                f"Verbunden: {endpoint} — Objects leer (Rechte / Server-Interface?)"
+            )
+            messagebox.showinfo("OPC UA Browse", _EMPTY_OBJECTS_HINT, parent=dialog)
 
     def set_status(text: str) -> None:
         status_var.set(text)
 
     def connect_worker() -> None:
         try:
-            client = connect_opcua_client(endpoint_var.get())
+            client = connect_opcua_client(endpoint_var.get(), security=sec)
+            # Browse im Worker-Thread (nicht im Tk-Mainthread).
+            try:
+                root_entries = list_root_nodes(client)
+            except Exception:
+                root_entries = []
+            try:
+                objects_entries = list_child_nodes(client, OBJECTS_FOLDER_NODEID)
+            except Exception as browse_exc:
+                cleanup()
+                client_holder.clear()
+                try:
+                    disconnect_opcua_client(client)
+                except Exception:
+                    pass
+                dialog.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "OPC UA Browse", str(browse_exc), parent=dialog
+                    ),
+                )
+                dialog.after(0, lambda: set_status("Browse fehlgeschlagen."))
+                dialog.after(0, lambda: loading.__setitem__("connect", False))
+                return
         except Exception as exc:
             dialog.after(
                 0,
@@ -152,16 +210,29 @@ def open_opcua_browse_dialog(
             dialog.after(0, lambda: set_status("Verbindung fehlgeschlagen."))
             dialog.after(0, lambda: loading.__setitem__("connect", False))
             return
+
         cleanup()
         client_holder.append(client)
-        dialog.after(0, populate_root)
+        dialog.after(0, lambda: apply_tree(root_entries, objects_entries))
         dialog.after(0, lambda: loading.__setitem__("connect", False))
 
     def on_connect() -> None:
         if loading["connect"]:
             return
         loading["connect"] = True
-        set_status("Verbinde ...")
+        tree.delete(*tree.get_children())
+        node_id_by_iid.clear()
+        name_by_iid.clear()
+        if sec is not None and sec.has_credentials():
+            set_status(
+                f"Verbinde als „{sec.username.strip()}“ "
+                f"(Timeout {int(OPCUA_SYNC_WRAPPER_TIMEOUT_S)}s) ..."
+            )
+        else:
+            set_status(
+                f"Verbinde anonym "
+                f"(Timeout {int(OPCUA_SYNC_WRAPPER_TIMEOUT_S)}s) ..."
+            )
         threading.Thread(target=connect_worker, daemon=True, name="OpcUaBrowseConnect").start()
 
     def expand_worker(iid: str) -> None:
@@ -180,12 +251,19 @@ def open_opcua_browse_dialog(
 
         def ui() -> None:
             insert_entries(iid, entries)
+            if not entries and node_id == OBJECTS_FOLDER_NODEID:
+                set_status("Objects leer (Rechte / Server-Interface?)")
             expanding.discard(iid)
 
         dialog.after(0, ui)
 
-    def on_tree_open(_event: tk.Event) -> None:
+    def on_tree_open(event: tk.Event) -> None:
+        # geo-opened item: Focus ist bei <<TreeviewOpen>> der geoeffnete Knoten.
         iid = tree.focus()
+        if not iid or "branch" not in tree.item(iid, "tags"):
+            # Fallback: Item unter der Maus.
+            if event is not None:
+                iid = tree.identify_row(getattr(event, "y", 0)) or iid
         if not iid or "branch" not in tree.item(iid, "tags"):
             return
         children = tree.get_children(iid)
@@ -206,10 +284,10 @@ def open_opcua_browse_dialog(
             messagebox.showinfo("OPC UA Browse", "Bitte einen Knoten auswaehlen.", parent=dialog)
             return
         node_id = node_id_by_iid[iid]
-        if not node_id:
+        if not node_id or node_id in {OBJECTS_FOLDER_NODEID, "i=84", "i=86", "i=87"}:
             messagebox.showinfo(
                 "OPC UA Browse",
-                "Bitte einen Unterknoten waehlen, nicht den Objects-Ordner.",
+                "Bitte einen Variablen-Knoten waehlen, nicht den Ordner.",
                 parent=dialog,
             )
             return

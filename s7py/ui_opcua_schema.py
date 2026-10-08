@@ -170,7 +170,20 @@ class OpcUaSchemaMixin:
                 if not row.name_var.get().strip():
                     row.name_var.set(display_name.replace(" ", "_"))
 
-            open_opcua_browse_dialog(dialog, endpoint, on_select=on_select)
+            # Gleiche Credentials wie Hauptverbindung (sonst Hang bei Zugriffssteuerung).
+            self._persist_opcua_credentials_from_ui()
+            security = self._get_opcua_security_config()
+            if security.has_credentials() and not security.password:
+                messagebox.showerror(
+                    "OPC UA Browse",
+                    "Benutzername ohne Passwort — bitte Passwort in der "
+                    "Verbindungszeile eintragen.",
+                    parent=dialog,
+                )
+                return
+            open_opcua_browse_dialog(
+                dialog, endpoint, on_select=on_select, security=security
+            )
 
         def refresh_count_choices() -> None:
             names = [row.name_var.get().strip() for row in rows if row.name_var.get().strip()]

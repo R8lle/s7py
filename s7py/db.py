@@ -403,12 +403,12 @@ def save_last_db_path(path: str, transport: str | None = None) -> None:
 
 
 def load_last_plc_ip() -> str:
-    """Zuletzt erfolgreich verbundene SPS-IP aus der Konfiguration laden."""
+    """Zuletzt gespeicherte SPS-IP aus der Konfiguration laden."""
     return str(load_app_config().get("last_plc_ip", "")).strip()
 
 
 def save_last_plc_ip(ip: str) -> None:
-    """Zuletzt verbundene SPS-IP fuer den naechsten Programmstart speichern."""
+    """SPS-IP fuer den naechsten Programmstart speichern (auch ohne Verbinden)."""
     ip = (ip or "").strip()
     if not ip:
         return
