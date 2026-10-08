@@ -117,5 +117,11 @@ app = BUNDLE(
         "CFBundleVersion": "0.9.0",
         "NSHighResolutionCapable": True,
         "LSMinimumSystemVersion": "11.0",
+        # macOS 15+: ohne Text erscheint oft kein Dialog / LAN-Zugriff bleibt zu.
+        "NSLocalNetworkUsageDescription": (
+            "s7py verbindet sich mit SPS-Steuerungen im lokalen Netzwerk "
+            "(Snap7 / OPC UA)."
+        ),
+        "NSBonjourServices": ["_opcua-tcp._tcp", "_s7comm._tcp"],
     },
 )

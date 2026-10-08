@@ -138,6 +138,23 @@ class ConnectionMixin:
                     "Benutzername ohne Passwort — bitte Passwort eintragen.",
                 )
                 return
+            missing_nodes = [
+                item.name
+                for item in items
+                if not str(getattr(item, "node_id", "") or "").strip()
+            ]
+            if missing_nodes:
+                messagebox.showerror(
+                    "OPC-UA-Verbindung",
+                    "Im OPC-UA-Schema fehlen NodeIds "
+                    f"({len(missing_nodes)} Variable(n)).\n\n"
+                    "Bitte unter Variablen → OPC UA die Knoten neu auswaehlen "
+                    "(…-Button) und speichern.\n\n"
+                    "Hinweis: Die Desktop-App speichert unter\n"
+                    "~/Library/Application Support/s7py/\n"
+                    "— getrennt von der Cursor-/Projekt-Konfiguration.",
+                )
+                return
             self._persist_opcua_credentials_from_ui()
         self._set_connecting_ui(True)
         self.status_var.set(f"Verbinde mit {target} ...")
