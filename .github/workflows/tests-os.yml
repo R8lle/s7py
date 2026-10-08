@@ -10,7 +10,8 @@ on:
 jobs:
   test:
     runs-on: ${{ inputs.os }}
-    timeout-minutes: 20
+    # macOS-Runner sind teuer — bei Hang nicht lange weiterlaufen.
+    timeout-minutes: ${{ startsWith(inputs.os, 'macos') && 12 || 20 }}
     steps:
       - uses: actions/checkout@v4
 

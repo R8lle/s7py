@@ -20,7 +20,8 @@ jobs:
           - os: macos-13
             arch: x86_64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    # Teurer Runner: bei Hang/Fehler frueh abbrechen (nicht 40+ Min).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -30,9 +31,11 @@ jobs:
           cache: pip
 
       - name: Install
+        timeout-minutes: 8
         run: python -m pip install -e ".[dev,opcua,build]"
 
       - name: Build stamp and icon
+        timeout-minutes: 3
         run: |
           mkdir -p packaging/build
           python -m s7py.about --stamp
@@ -48,6 +51,7 @@ jobs:
           fi
 
       - name: PyInstaller + DMG
+        timeout-minutes: 12
         run: |
           pyinstaller --noconfirm --clean s7py-macos.spec
           xattr -cr dist/s7py.app || true
@@ -65,12 +69,27 @@ jobs:
           echo "DMG_PATH=$OUT" >> "$GITHUB_ENV"
 
       - name: Self-test of the packaged app
-        timeout-minutes: 3
+        timeout-minutes: 2
         run: |
           APP="dist/s7py.app/Contents/MacOS/s7py"
+          # zusaetzlich Shell-Watchdog (macOS hat kein GNU timeout): max. 90s
           set +e
-          "$APP" --selftest "$PWD/selftest.txt"
+          "$APP" --selftest "$PWD/selftest.txt" &
+          pid=$!
+          (
+            sleep 90
+            if kill -0 "$pid" 2>/dev/null; then
+              echo "ABGEBROCHEN nach 90s (Selftest-Hang)"
+              kill -TERM "$pid" 2>/dev/null || true
+              sleep 2
+              kill -KILL "$pid" 2>/dev/null || true
+            fi
+          ) &
+          watchdog=$!
+          wait "$pid"
           code=$?
+          kill "$watchdog" 2>/dev/null || true
+          wait "$watchdog" 2>/dev/null || true
           set -e
           if [[ -f selftest.txt ]]; then cat selftest.txt; else echo "keine selftest.txt"; exit 1; fi
           grep -q "SELFTEST OK" selftest.txt
