@@ -11,6 +11,11 @@ build/
 .eggs/
 *.spec.bak
 s7py/_build.py
+packaging/build/
+.venv-build/
+selftest.txt
+selftest-src.txt
+dist/
 
 # SQLite Laufzeitdateien
 *.db

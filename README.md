@@ -53,16 +53,35 @@ python -m pytest
 
 Pfade werden relativ zum s7py-Ordner abgelegt. Vorlage: [`s7py_db.json.example`](s7py_db.json.example).
 
-## Portable Paket / Build
+## Windows-Installation (ohne Kommandozeile)
+
+Fertiges Setup von den [GitHub Releases](https://github.com/R8lle/s7py/releases) laden (`s7py-*-setup.exe`), doppelklicken und dem Assistenten folgen. Optional Desktop-Verknüpfung. Kein Python auf dem Ziel-PC nötig.
+
+Lokal auf einem Windows-PC bauen (Inno Setup 6 + Python):
+
+```bat
+build-windows.bat
+```
+
+oder in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
+```
+
+Ergebnis: `dist\installer\s7py-<version>-setup.exe`.
+
+Auf GitHub: Actions → **Windows-Paket** → Run workflow (baut, testet und legt die EXE als Artifact sowie Release ab).
+
+## Portable Quellpaket / weitere Builds
 
 | Ziel | Befehl | Ergebnis |
 |------|--------|----------|
-| ZIP (Mac/Linux) | `./package-portable.sh` | Quellarchiv zum Entpacken + `setup.sh` |
-| ZIP (Windows) | `package-portable.bat` | Quellarchiv zum Entpacken + `setup.bat` |
-| Windows-EXE | `build-windows.bat` | `dist\s7py\s7py.exe` (PyInstaller) |
+| ZIP (Mac/Linux) | `./package-portable.sh` | Quellarchiv + `setup.sh` (Python nötig) |
+| ZIP (Windows) | `package-portable.bat` | Quellarchiv + `setup.bat` (Python nötig) |
 | macOS-App | `./build-macos-pyinstaller.sh` | `.app`-Bundle (PyInstaller) |
 
-Beim Paketieren den Build festschreiben:
+Build-Kennung festschreiben (für Installer):
 
 ```bash
 python -m s7py.about --stamp

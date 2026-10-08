@@ -1,0 +1,32 @@
+# Nur manuell: Actions → „Tests“ → Run workflow
+# oder: gh workflow run tests.yml -f systems=linux
+name: Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      systems:
+        description: "Systeme (Minuten privat: Linux x1, Windows x2, macOS x10)"
+        type: choice
+        default: linux
+        options: [linux, windows, macos, linux+windows, alle]
+      pytest_args:
+        description: "Nur bestimmte Tests, z. B. -k about (leer = alle)"
+        type: string
+        default: ""
+
+jobs:
+  linux:
+    if: contains(fromJSON('["linux", "linux+windows", "alle"]'), inputs.systems)
+    uses: ./.github/workflows/tests-os.yml
+    with: { os: ubuntu-latest, pytest_args: "${{ inputs.pytest_args }}" }
+
+  windows:
+    if: contains(fromJSON('["windows", "linux+windows", "alle"]'), inputs.systems)
+    uses: ./.github/workflows/tests-os.yml
+    with: { os: windows-latest, pytest_args: "${{ inputs.pytest_args }}" }
+
+  macos:
+    if: contains(fromJSON('["macos", "alle"]'), inputs.systems)
+    uses: ./.github/workflows/tests-os.yml
+    with: { os: macos-latest, pytest_args: "${{ inputs.pytest_args }}" }
