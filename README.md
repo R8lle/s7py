@@ -54,7 +54,8 @@ Lokale Einstellungen: `s7py_db.json` (in `.gitignore`). Vorlage: [`s7py_db.json.
 | Ziel | Befehl / Aktion | Ergebnis |
 |------|-----------------|----------|
 | Windows-Setup | `build-windows.bat` oder Actions → **Windows-Paket** | `s7py-<version>-setup.exe` |
-| macOS-DMG | `./build-macos-pyinstaller.sh` oder Actions → **macOS-Paket** | `s7py-<version>-macos-arm64.dmg` / `…-x86_64.dmg` |
+| macOS-DMG (ARM) | Actions → **macOS-Paket** | `s7py-<version>-macos-arm64.dmg` |
+| macOS-DMG (Intel) | lokal `./build-macos-pyinstaller.sh` auf Intel-Mac | `s7py-<version>-macos-x86_64.dmg` |
 | Linux-Tarball | Actions → **Linux-Paket** | `s7py-<version>-linux-x86_64.tar.gz` |
 | Portable ZIP | `./package-portable.sh` / `package-portable.bat` | Quellarchiv (Python nötig) |
 

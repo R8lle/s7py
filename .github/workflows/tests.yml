@@ -26,12 +26,7 @@ jobs:
     uses: ./.github/workflows/tests-os.yml
     with: { os: windows-latest, pytest_args: "${{ inputs.pytest_args }}" }
 
-  macos_arm:
+  macos:
     if: contains(fromJSON('["macos", "alle"]'), inputs.systems)
     uses: ./.github/workflows/tests-os.yml
     with: { os: macos-14, pytest_args: "${{ inputs.pytest_args }}" }
-
-  macos_intel:
-    if: contains(fromJSON('["macos", "alle"]'), inputs.systems)
-    uses: ./.github/workflows/tests-os.yml
-    with: { os: macos-13, pytest_args: "${{ inputs.pytest_args }}" }
