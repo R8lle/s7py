@@ -45,8 +45,9 @@ fi
 xattr -cr "${APP}" 2>/dev/null || true
 
 VERSION="$(python -c "import s7py; print(s7py.__version__)")"
+ARCH="$(uname -m)"
 DMG_STAGE="${ROOT}/dist/dmg-stage"
-DMG_OUT="${ROOT}/dist/s7py-${VERSION}-macos.dmg"
+DMG_OUT="${ROOT}/dist/s7py-${VERSION}-macos-${ARCH}.dmg"
 rm -rf "${DMG_STAGE}" "${DMG_OUT}"
 mkdir -p "${DMG_STAGE}"
 cp -R "${APP}" "${DMG_STAGE}/"

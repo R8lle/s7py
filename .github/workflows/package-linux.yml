@@ -1,0 +1,86 @@
+# Linux-Tarball (PyInstaller-Ordner). Nur manuell:
+# Actions → „Linux-Paket“ → Run workflow
+# oder: gh workflow run package-linux.yml
+name: Linux-Paket
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: System libraries (Tk/matplotlib)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk libgl1 libxkbcommon0 libfontconfig1
+
+      - name: Install
+        run: python -m pip install -e ".[dev,opcua,build]"
+
+      - name: Build stamp
+        run: |
+          mkdir -p packaging/build
+          python -m s7py.about --stamp
+          cat s7py/_build.py || true
+
+      - name: PyInstaller
+        run: |
+          pyinstaller packaging/linux/s7py.spec \
+            --distpath dist \
+            --workpath packaging/build/work \
+            --noconfirm
+
+      - name: Self-test of the packaged program
+        timeout-minutes: 3
+        run: |
+          ./dist/s7py/s7py --selftest "$PWD/selftest.txt"
+          cat selftest.txt
+          grep -q "SELFTEST OK" selftest.txt
+
+      - name: Pack tarball
+        run: |
+          VERSION="$(python -c 'import s7py; print(s7py.__version__)')"
+          ARCH="$(uname -m)"
+          OUT="dist/s7py-${VERSION}-linux-${ARCH}.tar.gz"
+          tar -C dist -czf "$OUT" s7py
+          ls -la "$OUT"
+          echo "TARBALL=$OUT" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: s7py-linux-tarball
+          path: |
+            dist/s7py-*-linux-*.tar.gz
+            selftest.txt
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(python -c 'import s7py; print(s7py.__version__)')"
+          TAG="v${VERSION}-linux"
+          TARBALL="$(ls dist/s7py-*-linux-*.tar.gz | head -1)"
+          if [[ -z "$TARBALL" ]]; then echo "Tarball fehlt"; exit 1; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$TARBALL" --clobber
+          else
+            gh release create "$TAG" "$TARBALL" \
+              --title "s7py ${VERSION} Linux" \
+              --notes "Linux-Tarball (PyInstaller). Entpacken und ./s7py starten. Tk/Display noetig."
+          fi
