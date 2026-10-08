@@ -139,11 +139,8 @@ def _insert_inline(text: tk.Text, line: str, tag: str) -> None:
         elif token.startswith("[") and "](" in token:
             label, _, rest = token[1:].partition("](")
             url = rest[:-1] if rest.endswith(")") else rest
-            start = text.index(tk.END)
-            text.insert(tk.END, label, ("link", tag))
-            end = text.index(tk.END)
-            # URL am Tag hinterlegen; Klick oeffnet Browser (siehe HelpWindow).
-            text.tag_add(f"url:{url}", start, end)
+            # URL als Tag am Insert (tag_add auf END ist unter Tk unzuverlaessig).
+            text.insert(tk.END, label, ("link", tag, f"url:{url}"))
         else:
             text.insert(tk.END, token, tag)
         pos = match.end()
@@ -288,7 +285,8 @@ def render_markdown(text: tk.Text, markdown: str) -> dict[str, str]:
         i += 1
 
     flush_code()
-    text.configure(state=tk.DISABLED)
+    # Nicht DISABLED: unter macOS Aqua kommen sonst keine Mausklicks auf Links an.
+    text.configure(state=tk.NORMAL)
     return anchors
 
 
@@ -364,7 +362,11 @@ class HelpWindow:
         self.text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         body_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         _configure_tags(self.text)
-        self.text.tag_bind("link", "<Button-1>", self._open_link)
+        # Nur lesen: Tippen blockieren, Links per Widget-Bind (zuverlaessig auf macOS).
+        self.text.bind("<Key>", lambda _e: "break")
+        self.text.bind("<<Paste>>", lambda _e: "break")
+        self.text.bind("<<Cut>>", lambda _e: "break")
+        self.text.bind("<Button-1>", self._open_link)
         self.text.tag_bind("link", "<Enter>", lambda _e: self.text.configure(cursor="hand2"))
         self.text.tag_bind("link", "<Leave>", lambda _e: self.text.configure(cursor=""))
         split.add(body, weight=3)
@@ -400,18 +402,18 @@ class HelpWindow:
         if index:
             self.text.see(index)
 
-    def _open_link(self, event: tk.Event) -> None:
+    def _open_link(self, event: tk.Event) -> str | None:
         index = self.text.index(f"@{event.x},{event.y}")
         for tag in self.text.tag_names(index):
             if tag.startswith("url:"):
                 webbrowser.open(tag[4:])
-                break
+                return "break"
+        return None
 
     def find_next(self) -> None:
         query = self.search.get().strip()
         if not query:
             return
-        self.text.configure(state=tk.NORMAL)
         self.text.tag_remove("search", "1.0", tk.END)
         start = self.text.index(tk.INSERT)
         pos = self.text.search(query, start, tk.END, nocase=True)
@@ -422,7 +424,6 @@ class HelpWindow:
             self.text.tag_add("search", pos, end)
             self.text.mark_set(tk.INSERT, end)
             self.text.see(pos)
-        self.text.configure(state=tk.DISABLED)
 
     def _on_close(self) -> None:
         geometry = capture_window_geometry(self.window)
