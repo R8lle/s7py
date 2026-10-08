@@ -26,8 +26,8 @@ def test_achse_daten_main_packed_layout_after_dint() -> None:
     assert by_name["ActualAcceleration"].bytebit == "20.0"
     assert by_name["MotorCurrent"].bytebit == "28.0"
 
-    assert by_name["ControlDifference"].datatype == "LReal"
-    assert by_name["ControlDifference"].bytebit == "36.0"
+    assert by_name["FollowingError"].datatype == "LReal"
+    assert by_name["FollowingError"].bytebit == "36.0"
 
     assert by_name["DB_String"].bytebit == "44.0"
     assert by_name["Reserve"].bytebit == "300.0"
