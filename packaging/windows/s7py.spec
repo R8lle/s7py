@@ -1,7 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller-Spezifikation fuer s7py (Windows .exe, Ordner-Build)."""
 
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_all
+
+SPECDIR = Path(SPECPATH).resolve()
+ROOT = SPECDIR.parents[1]  # packaging/windows -> Projektroot
 
 block_cipher = None
 
@@ -52,16 +57,16 @@ hiddenimports = [
 ] + snap7_hiddenimports + mpl_hiddenimports
 
 a = Analysis(
-    ["s7py.py"],
-    pathex=[],
+    [str(ROOT / "s7py.py")],
+    pathex=[str(ROOT)],
     binaries=snap7_binaries + mpl_binaries,
     datas=snap7_datas
     + mpl_datas
     + [
-        ("LICENSE", "."),
-        ("LICENSE_THIRD_PARTY.txt", "."),
-        ("s7py/help", "s7py/help"),
-        ("docs/TIA_OPCUA_S7-1500.md", "docs"),
+        (str(ROOT / "LICENSE"), "."),
+        (str(ROOT / "LICENSE_THIRD_PARTY.txt"), "."),
+        (str(ROOT / "s7py" / "help"), "s7py/help"),
+        (str(ROOT / "docs" / "TIA_OPCUA_S7-1500.md"), "docs"),
     ],
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -92,7 +97,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="packaging/build/s7py.ico",
+    icon=str(ROOT / "packaging" / "build" / "s7py.ico"),
 )
 
 coll = COLLECT(
