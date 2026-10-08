@@ -9,6 +9,10 @@ ACHSE_DB = Path(__file__).resolve().parents[1] / "Achse_Daten_Main.db"
 
 def test_achse_daten_main_packed_layout_after_dint() -> None:
     """DInt (4 Byte) @ 0, danach LREAL ohne Padding-Luecke bis Byte 8."""
+    if not ACHSE_DB.is_file():
+        import pytest
+
+        pytest.skip(f"Testdatei fehlt: {ACHSE_DB}")
     schema = parse_tia_data_block_file(str(ACHSE_DB))
     by_name = {item.name: item for item in schema.items}
 

@@ -25,7 +25,7 @@ Write-Host $py
 if (-not (Test-Path .venv-build\Scripts\python.exe)) { Run $py -m venv .venv-build }
 $vpy = (Resolve-Path .venv-build\Scripts\python.exe).Path
 Run $vpy -m pip install --upgrade pip --quiet
-Run $vpy -m pip install -e ".[dev]" pyinstaller pillow --quiet
+Run $vpy -m pip install -e ".[dev,opcua]" pyinstaller pillow --quiet
 
 Step "Build-Kennung und Symbol"
 New-Item -ItemType Directory -Force packaging\build | Out-Null

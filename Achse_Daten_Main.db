@@ -1,0 +1,20 @@
+﻿DATA_BLOCK "SnapDB"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+NON_RETAIN
+   STRUCT 
+      Count : DInt;
+      ActualPosition : LReal;
+      ActualVelocity : LReal;
+      ActualAcceleration : LReal;
+      MotorCurrent : LReal;
+      FollowingError { ExternalWritable := 'False'} : LReal;
+      DB_String : String;
+      Reserve : Array[0..255] of Byte;
+   END_STRUCT;
+
+
+BEGIN
+
+END_DATA_BLOCK
+
