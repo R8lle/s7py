@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 
 from s7py.constants import (
@@ -46,8 +47,10 @@ from s7py.db import (
 from s7py.named_config import (
     ACTIVE_CONFIG_NAME_KEY,
     config_path_for_name,
+    delete_named_config,
     list_named_configs,
     load_named_config,
+    rename_named_config,
     sanitize_config_name,
     save_named_config,
 )
@@ -129,7 +132,8 @@ class NamedConfigMixin:
             messagebox.showerror("Konfiguration speichern", str(exc), parent=self)
 
     def _ask_named_config_choice(self: S7PyAppProtocol) -> str | None:
-        items = list_named_configs()
+        """Dialog: laden, umbenennen oder loeschen. Rueckgabe: Stem zum Laden oder None."""
+        items: list[tuple[str, Path]] = list_named_configs()
         if not items:
             messagebox.showinfo(
                 "Konfiguration laden",
@@ -157,29 +161,116 @@ class NamedConfigMixin:
         listbox.configure(yscrollcommand=scroll.set)
         listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        for display, _path in items:
-            listbox.insert(tk.END, display)
-        listbox.selection_set(0)
-        listbox.focus_set()
 
         result: dict[str, str | None] = {"name": None}
 
-        def _accept(_event=None) -> None:
+        def _selected_stem() -> str | None:
             sel = listbox.curselection()
             if not sel:
+                return None
+            return items[int(sel[0])][1].stem
+
+        def _refresh_list(select_stem: str | None = None) -> None:
+            nonlocal items
+            items = list_named_configs()
+            listbox.delete(0, tk.END)
+            if not items:
                 return
-            # Dateiname (Stem) ist massgeblich, Anzeige kann vom Meta-Namen kommen.
-            result["name"] = items[int(sel[0])][1].stem
+            select_idx = 0
+            for idx, (display, path) in enumerate(items):
+                listbox.insert(tk.END, display)
+                if select_stem and path.stem == select_stem:
+                    select_idx = idx
+            listbox.selection_set(select_idx)
+            listbox.see(select_idx)
+            listbox.configure(height=min(12, max(4, len(items))))
+
+        def _accept(_event=None) -> None:
+            stem = _selected_stem()
+            if not stem:
+                return
+            result["name"] = stem
             dialog.destroy()
 
         def _cancel(_event=None) -> None:
             result["name"] = None
             dialog.destroy()
 
+        def _rename(_event=None) -> None:
+            stem = _selected_stem()
+            if not stem:
+                return
+            display = items[listbox.curselection()[0]][0]
+            raw = simpledialog.askstring(
+                "Konfiguration umbenennen",
+                "Neuer Name:",
+                parent=dialog,
+                initialvalue=display,
+            )
+            if raw is None:
+                return
+            try:
+                new_name = sanitize_config_name(raw)
+                renamed = rename_named_config(stem, new_name)
+            except (OSError, ValueError) as exc:
+                messagebox.showerror("Konfiguration umbenennen", str(exc), parent=dialog)
+                return
+            active = self._active_config_display_name()
+            if active == stem:
+                self._app_config = load_app_config()
+                self._app_config[ACTIVE_CONFIG_NAME_KEY] = renamed.stem
+                save_app_config(self._app_config)
+                self._update_window_title_for_config()
+            self._log(f"Konfiguration umbenannt: {stem} → {renamed.stem}")
+            _refresh_list(select_stem=renamed.stem)
+            if not items:
+                dialog.destroy()
+
+        def _delete(_event=None) -> None:
+            stem = _selected_stem()
+            if not stem:
+                return
+            display = items[listbox.curselection()[0]][0]
+            if not messagebox.askyesno(
+                "Konfiguration löschen",
+                f"„{display}“ wirklich löschen?\n\nDie Datei wird entfernt.",
+                parent=dialog,
+            ):
+                return
+            try:
+                delete_named_config(stem)
+            except OSError as exc:
+                messagebox.showerror("Konfiguration löschen", str(exc), parent=dialog)
+                return
+            active = self._active_config_display_name()
+            if active == stem:
+                self._app_config = load_app_config()
+                self._app_config.pop(ACTIVE_CONFIG_NAME_KEY, None)
+                save_app_config(self._app_config)
+                self._update_window_title_for_config()
+            self._log(f"Konfiguration gelöscht: {stem}")
+            _refresh_list()
+            if not items:
+                messagebox.showinfo(
+                    "Konfiguration laden",
+                    "Keine weiteren gespeicherten Konfigurationen.",
+                    parent=dialog,
+                )
+                dialog.destroy()
+
+        for display, _path in items:
+            listbox.insert(tk.END, display)
+        listbox.selection_set(0)
+        listbox.focus_set()
+
         btn_row = ttk.Frame(dialog)
         btn_row.pack(fill=tk.X, padx=12, pady=(4, 12))
         ttk.Button(btn_row, text="Abbrechen", command=_cancel).pack(side=tk.RIGHT)
         ttk.Button(btn_row, text="Laden", command=_accept).pack(side=tk.RIGHT, padx=(0, 8))
+        ttk.Button(btn_row, text="Löschen", command=_delete).pack(side=tk.LEFT)
+        ttk.Button(btn_row, text="Umbenennen", command=_rename).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
         listbox.bind("<Double-Button-1>", _accept)
         listbox.bind("<Return>", _accept)
         dialog.bind("<Escape>", _cancel)
@@ -213,6 +304,7 @@ class NamedConfigMixin:
             save_app_config(body)
             self._apply_loaded_app_config()
             self._log(f"Konfiguration geladen: {loaded_name}")
+            self.status_var.set(f"Konfiguration „{loaded_name}“ geladen.")
         except (OSError, ValueError, TypeError) as exc:
             messagebox.showerror("Konfiguration laden", str(exc), parent=self)
             return

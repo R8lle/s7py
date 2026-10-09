@@ -83,7 +83,7 @@ Fenstergrößen und Positionen (Hauptfenster, Variablen, Tabelle) werden beim Sc
 Mehrere Anlagen oder Messaufgaben lassen sich als eigene Profile ablegen und später wieder aufrufen.
 
 1. *Datei → Konfiguration speichern unter…* (ganz oben im Menü): Name vergeben. Gespeichert werden Verbindung (Protokoll, IP/Endpoint, Anmeldung, Rack/Slot/DB), Abfrageintervall, Aufzeichnungsmodus, Auto-Reconnect, SQLite-Pfad sowie **beide** Variablen-Schemas (Snap7 und OPC UA).
-2. *Datei → Konfiguration laden…*: Profil aus der Liste wählen. Die Oberfläche übernimmt alle Werte; optional direkt verbinden und die Aufzeichnung starten.
+2. *Datei → Konfiguration laden…*: Profil aus der Liste wählen (**Laden**), optional **Umbenennen** oder **Löschen**. Nach dem Laden übernimmt die Oberfläche alle Werte und zeigt den Namen in der Statuszeile; optional direkt verbinden und die Aufzeichnung starten.
 3. Der aktive Profilname steht in der Fenstertitelzeile (`[Name]`).
 
 Ablage: Unterordner `configs/` im Anwendungsdatenverzeichnis (Entwicklung: Projektordner `s7py/configs/`; gebündelte App: z. B. `~/Library/Application Support/s7py/configs/` auf macOS). Eine Datei pro Name (`configs/<Name>.json`).

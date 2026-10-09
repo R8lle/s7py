@@ -96,3 +96,24 @@ def delete_named_config(name: str) -> None:
     path = config_path_for_name(name)
     if path.is_file():
         path.unlink()
+
+
+def rename_named_config(old_name: str, new_name: str) -> Path:
+    """Benennt eine gespeicherte Konfiguration um (Datei + Meta-Name)."""
+    old_path = config_path_for_name(old_name)
+    if not old_path.is_file():
+        raise FileNotFoundError(f"Konfiguration nicht gefunden: {old_path.name}")
+    new_safe = sanitize_config_name(new_name)
+    new_path = configs_dir() / f"{new_safe}.json"
+    if new_path.resolve() == old_path.resolve():
+        # Nur Meta-Name aktualisieren (gleiche Datei nach Sanitize).
+        name, body = load_named_config(old_path)
+        del name
+        return save_named_config(new_safe, body)
+    if new_path.is_file():
+        raise FileExistsError(f"Konfiguration „{new_safe}“ existiert bereits.")
+    name, body = load_named_config(old_path)
+    del name
+    saved = save_named_config(new_safe, body)
+    old_path.unlink(missing_ok=True)
+    return saved

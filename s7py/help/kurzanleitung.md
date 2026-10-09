@@ -42,7 +42,7 @@ Schritt-für-Schritt für TIA Portal (S7-1500): Dokument `docs/TIA_OPCUA_S7-1500
 
 ## Gespeicherte Einstellungen
 
-- *Datei → Konfiguration speichern unter…* / *Konfiguration laden…* (ganz oben): komplette Profile (Einstellungen + Variablen) unter `configs/`. Nach dem Laden optional verbinden und Aufzeichnung starten.
+- *Datei → Konfiguration speichern unter…* / *Konfiguration laden…* (ganz oben): komplette Profile unter `configs/`; im Lade-Dialog auch umbenennen oder löschen. Nach dem Laden optional verbinden und Aufzeichnung starten.
 - Zusätzlich merkt `s7py_db.json` die letzte Sitzung (Datenbank, IP/Endpoint, Schema, Intervalle, Fenster).
 
 Die ausführliche **Bedienungsanleitung** steht unter *Hilfe → Bedienungsanleitung* (Taste **F1** öffnet die Schnellhilfe).

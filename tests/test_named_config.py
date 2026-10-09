@@ -69,3 +69,29 @@ def test_overwrite_keeps_latest(tmp_path, monkeypatch):
     _name, body = load_named_config("Test")
     assert body["v"] == 2
     assert body["plc_transport"] == "snap7"
+
+
+def test_rename_and_delete(tmp_path, monkeypatch):
+    from s7py.named_config import (
+        delete_named_config,
+        list_named_configs,
+        load_named_config,
+        rename_named_config,
+        save_named_config,
+    )
+
+    monkeypatch.setattr("s7py.constants.APP_DIR", tmp_path)
+    save_named_config("Alt", {"plc_transport": "snap7", "x": 1})
+    new_path = rename_named_config("Alt", "Neu")
+    assert new_path.name == "Neu.json"
+    assert not (tmp_path / "configs" / "Alt.json").exists()
+    name, body = load_named_config("Neu")
+    assert name == "Neu"
+    assert body["x"] == 1
+
+    save_named_config("Andere", {"y": 2})
+    with pytest.raises(FileExistsError):
+        rename_named_config("Neu", "Andere")
+
+    delete_named_config("Neu")
+    assert [item[0] for item in list_named_configs()] == ["Andere"]
