@@ -36,6 +36,10 @@ from s7py.constants import (
     TIMESTAMP_FORMAT_FILE,
 )
 from s7py.db import normalize_plot_refresh_ms
+from s7py.ui_flow import center_toplevel_on_parent
+
+# Ab dieser Anzahl plotbarer Felder: Button+Dialog statt Inline-Checkboxen.
+_PLOT_INLINE_CHECKBOX_LIMIT = 6
 
 
 class _StableNavigationToolbar(NavigationToolbar2Tk):
@@ -123,9 +127,10 @@ class PlotMixin:
     def _ensure_line_on_axis(self: S7PyAppProtocol, name: str, axis, selected: list[str]) -> None:
         color = self._plot_color_for_field(name, selected)
         marker = "o" if self._markers_on else "None"
+        label = name if name in selected else "_nolegend_"
         existing = self._plot_lines.get(name)
         if existing is not None and existing.axes is axis:
-            existing.set_label(name)
+            existing.set_label(label)
             existing.set_color(color)
             return
         if existing is not None:
@@ -140,7 +145,7 @@ class PlotMixin:
             markerfacecolor="red",
             markeredgecolor="black",
             lw=1,
-            label=name,
+            label=label,
         )
         self._plot_lines[name] = line
 
@@ -163,18 +168,26 @@ class PlotMixin:
         self.ax_plot.tick_params(axis="y", colors="black")
 
     def _update_plot_legend(self: S7PyAppProtocol) -> None:
-        handles, labels = self.ax_plot.get_legend_handles_labels()
-        if self.ax_plot_right is not None:
-            h2, l2 = self.ax_plot_right.get_legend_handles_labels()
-            handles = handles + h2
-            labels = labels + l2
+        """Legende nur fuer sichtbare, ausgewaehlte Kurven (kein _nolegend_)."""
+        selected = set(self._get_selected_plot_fields())
+        handles: list[object] = []
+        labels: list[str] = []
+        for name in plottable_numeric_fields(self._schema):
+            line = self._plot_lines.get(name)
+            if line is None or name not in selected:
+                continue
+            if not line.get_visible():
+                continue
+            label = line.get_label()
+            if not label or str(label).startswith("_"):
+                continue
+            handles.append(line)
+            labels.append(str(label))
         legend = self.ax_plot.get_legend()
         if handles:
-            if legend is None:
-                self.ax_plot.legend(loc="upper left", fontsize=8)
-            else:
+            if legend is not None:
                 legend.remove()
-                self.ax_plot.legend(handles, labels, loc="upper left", fontsize=8)
+            self.ax_plot.legend(handles, labels, loc="upper left", fontsize=8)
         elif legend is not None:
             legend.remove()
 
@@ -222,28 +235,144 @@ class PlotMixin:
             and self._plot_field_vars[name].get()
         ]
 
+    def _plot_fields_button_text(self: S7PyAppProtocol) -> str:
+        plottable = plottable_numeric_fields(self._schema)
+        selected = self._get_selected_plot_fields()
+        return f"Kurven … ({len(selected)}/{len(plottable)})"
+
+    def _update_plot_fields_button(self: S7PyAppProtocol) -> None:
+        btn = getattr(self, "_plot_fields_button", None)
+        if btn is not None:
+            btn.configure(text=self._plot_fields_button_text())
+
     def _rebuild_plot_field_checkboxes(self: S7PyAppProtocol) -> None:
         self.plot_field_checks_frame.clear()
         self._plot_field_vars.clear()
+        self._plot_fields_button = None
 
         plottable = plottable_numeric_fields(self._schema)
-        defaults = {
-            name for name in self._schema.plot_fields if name in plottable
-        }
-        if not defaults and plottable:
-            defaults = set(plottable[:2])
+        use_dialog = len(plottable) >= _PLOT_INLINE_CHECKBOX_LIMIT
+        if use_dialog:
+            # Viele Variablen: nichts vorselektieren (sonst Diagramm/Legende voll).
+            defaults: set[str] = set()
+        else:
+            defaults = {
+                name for name in self._schema.plot_fields if name in plottable
+            }
+            if not defaults and plottable:
+                defaults = set(plottable[:2])
 
         for name in plottable:
-            var = tk.BooleanVar(value=name in defaults)
-            self._plot_field_vars[name] = var
-            self.plot_field_checks_frame.add(
-                ttk.Checkbutton(
-                    self.plot_field_checks_frame,
-                    text=name,
-                    variable=var,
-                    command=self._on_plot_field_toggle,
-                )
+            self._plot_field_vars[name] = tk.BooleanVar(value=name in defaults)
+
+        if use_dialog:
+            self._plot_fields_button = ttk.Button(
+                self.plot_field_checks_frame,
+                text=self._plot_fields_button_text(),
+                command=self._open_plot_fields_dialog,
             )
+            self.plot_field_checks_frame.add(self._plot_fields_button)
+        else:
+            for name in plottable:
+                self.plot_field_checks_frame.add(
+                    ttk.Checkbutton(
+                        self.plot_field_checks_frame,
+                        text=name,
+                        variable=self._plot_field_vars[name],
+                        command=self._on_plot_field_toggle,
+                    )
+                )
+
+    def _open_plot_fields_dialog(self: S7PyAppProtocol) -> None:
+        """Dialog: Kurven einzeln an-/abwaehlen (bei vielen Variablen)."""
+        plottable = plottable_numeric_fields(self._schema)
+        if not plottable:
+            messagebox.showinfo(
+                "Kurven",
+                "Keine plotbaren Variablen im aktuellen Schema.",
+                parent=self,
+            )
+            return
+
+        dialog = tk.Toplevel(self)
+        dialog.title("Kurven auswaehlen")
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.minsize(360, 420)
+
+        outer = ttk.Frame(dialog, padding=10)
+        outer.pack(fill=tk.BOTH, expand=True)
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            outer,
+            text=(
+                "Nur aktivierte Variablen erscheinen im Diagramm und in der Legende. "
+                "Standard bei vielen Variablen: alle aus."
+            ),
+            wraplength=420,
+        ).grid(row=0, column=0, sticky=tk.EW, pady=(0, 8))
+
+        list_host = ttk.Frame(outer)
+        list_host.grid(row=1, column=0, sticky=tk.NSEW)
+        list_host.columnconfigure(0, weight=1)
+        list_host.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(list_host, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(list_host, orient=tk.VERTICAL, command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+        scroll_frame.bind(
+            "<Configure>",
+            lambda _e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+
+        def _sync_width(event: tk.Event) -> None:
+            canvas.itemconfigure(canvas_window, width=event.width)
+
+        canvas.bind("<Configure>", _sync_width)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky=tk.NSEW)
+        scrollbar.grid(row=0, column=1, sticky=tk.NS)
+
+        def on_toggle() -> None:
+            self._on_plot_field_toggle()
+            self._update_plot_fields_button()
+
+        for name in plottable:
+            var = self._plot_field_vars.get(name)
+            if var is None:
+                var = tk.BooleanVar(value=False)
+                self._plot_field_vars[name] = var
+            ttk.Checkbutton(
+                scroll_frame,
+                text=name,
+                variable=var,
+                command=on_toggle,
+            ).pack(anchor=tk.W, pady=1)
+
+        btn_row = ttk.Frame(outer)
+        btn_row.grid(row=2, column=0, sticky=tk.EW, pady=(10, 0))
+
+        def set_all(value: bool) -> None:
+            for name in plottable:
+                var = self._plot_field_vars.get(name)
+                if var is not None:
+                    var.set(value)
+            on_toggle()
+
+        ttk.Button(btn_row, text="Alle an", command=lambda: set_all(True)).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(btn_row, text="Alle aus", command=lambda: set_all(False)).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(btn_row, text="Schliessen", command=dialog.destroy).pack(
+            side=tk.RIGHT
+        )
+
+        center_toplevel_on_parent(dialog, self, width=440, height=520)
 
     def _ensure_plot_lines(self: S7PyAppProtocol) -> None:
         plottable = set(plottable_numeric_fields(self._schema))
@@ -256,12 +385,19 @@ class PlotMixin:
     def _on_plot_field_toggle(self: S7PyAppProtocol) -> None:
         self._sync_dual_axis_layout()
         self._draw_plot_from_cache()
+        self._update_plot_fields_button()
 
     def _draw_plot_from_cache(self: S7PyAppProtocol) -> None:
         rows = self._plot_cache_rows
         selected = self._get_selected_plot_fields()
         if not rows or not selected:
             self._clear_plot_display()
+            # Legende leeren, wenn nichts ausgewaehlt ist.
+            for name, line in self._plot_lines.items():
+                line.set_label("_nolegend_")
+                line.set_visible(False)
+            self._update_plot_legend()
+            self.canvas.draw_idle()
             return
 
         self._sync_dual_axis_layout(selected)
@@ -271,9 +407,11 @@ class PlotMixin:
                 values = [row[2].get(name) for row in rows]
                 line.set_data(times, values)
                 line.set_visible(True)
+                line.set_label(name)
             else:
                 line.set_data([], [])
                 line.set_visible(False)
+                line.set_label("_nolegend_")
 
         self.ax_plot.relim()
         self.ax_plot.autoscale_view()

@@ -20,7 +20,7 @@ s7py liest Messwerte von einer Siemens-SPS (**Snap7** oder **OPC UA**), speicher
 
 1. **OPC-UA-Endpoint** eintragen (z. B. `opc.tcp://192.168.0.1:4840`).
 2. Bei Bedarf **Benutzer** und **Passwort** (wie in TIA angelegt).
-3. Unter *Datei → OPC UA Variablen (manuell)…* NodeIds und Typen festlegen (Browse möglich).
+3. Unter *Datei → OPC UA Variablen (manuell)…* NodeIds festlegen: Browse `…` → einzelne **NodeId uebernehmen** oder **Unterbaum uebernehmen** (Gruppe; einzeln per SQLite/`X` oder ganz per **Gruppe loeschen**).
 4. **Verbinden**, dann **Start**.
 
 Wenn der Browse-Baum leer bleibt: in TIA unter *OPC UA-Kommunikation → Zugriffssteuerung* **Browse** und **Read** für die Benutzerrolle setzen und laden.
@@ -31,7 +31,7 @@ Schritt-für-Schritt für TIA Portal (S7-1500): Dokument `docs/TIA_OPCUA_S7-1500
 
 - **Start** / **Pause**: Aufzeichnung ein und aus (Verbindung bleibt bestehen).
 - **Abfrage (ms)**: wie oft die SPS gelesen wird. Bei Count-Lücken Intervall verkürzen.
-- Im Diagramm Kurven ein-/ausblenden; Umfang und Aktualisierung in der Bedienleiste.
+- Im Diagramm Kurven ein-/ausblenden (bei vielen Variablen: Button **Kurven …**, Standard alle aus; nur aktivierte erscheinen in der Legende). Umfang und Aktualisierung in der Bedienleiste.
 - *Datei → Diagramm als PNG speichern…* exportiert die aktuelle Ansicht.
 
 ## Datenbank

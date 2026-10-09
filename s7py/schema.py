@@ -118,6 +118,8 @@ class DbItem:
     size: int = 0
     s7_type: str = ""
     node_id: str = ""
+    # OPC-UA-Unterbaum-Import: NodeId der Import-Wurzel (leer = Einzelvariable).
+    group_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Serialisiert fuer ``s7py_db.json`` (rueckwaertskompatibel)."""
@@ -134,6 +136,8 @@ class DbItem:
             data["s7_type"] = self.s7_type
         if self.node_id:
             data["node_id"] = self.node_id
+        if self.group_id:
+            data["group_id"] = self.group_id
         return data
 
     @classmethod
@@ -146,6 +150,7 @@ class DbItem:
             size=int(data["size"]) if data.get("size") else 0,
             s7_type=str(data.get("s7_type", "") or ""),
             node_id=str(data.get("node_id", "") or ""),
+            group_id=str(data.get("group_id", "") or ""),
         )
         return normalize_snap7_db_item(item)
 
@@ -163,6 +168,7 @@ def normalize_snap7_db_item(item: DbItem) -> DbItem:
             size=item.size or 8,
             s7_type=item.s7_type or "LREAL",
             node_id=item.node_id,
+            group_id=item.group_id,
         )
     if datatype.lower() == "lreal":
         return DbItem(
@@ -173,6 +179,7 @@ def normalize_snap7_db_item(item: DbItem) -> DbItem:
             size=item.size or 8,
             s7_type=item.s7_type or "LREAL",
             node_id=item.node_id,
+            group_id=item.group_id,
         )
     if datatype.lower() == "real" and item.size >= 8:
         return DbItem(
@@ -183,6 +190,7 @@ def normalize_snap7_db_item(item: DbItem) -> DbItem:
             size=item.size,
             s7_type=item.s7_type or "LREAL",
             node_id=item.node_id,
+            group_id=item.group_id,
         )
     return item
 

@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from s7py.opcua_browse import (
     OBJECTS_FOLDER_NODEID,
+    OpcUaBrowseEntry,
+    collect_variable_descendants,
     connect_opcua_client,
     list_child_nodes,
     map_opcua_variant_to_s7py,
@@ -135,6 +137,61 @@ class TestListChildNodes:
         assert len(entries) == 1
         assert entries[0].display_name == "Server"
         assert entries[0].node_id == "i=2253"
+
+
+class TestCollectVariableDescendants:
+    def test_recursive_variables_skip_objects(self):
+        tree = {
+            "root": [
+                OpcUaBrowseEntry("Motor", "motor", "Object"),
+                OpcUaBrowseEntry("Count", "count", "Variable", "DWord"),
+            ],
+            "motor": [
+                OpcUaBrowseEntry("Speed", "speed", "Variable", "Real"),
+                OpcUaBrowseEntry("Nested", "nested", "Object"),
+            ],
+            "nested": [
+                OpcUaBrowseEntry("Temp", "temp", "Variable", "Real"),
+            ],
+            "count": [],
+            "speed": [],
+            "temp": [],
+        }
+
+        def fake_list(_client, node_id=None, **_kwargs):
+            return list(tree.get(node_id or "", []))
+
+        with patch("s7py.opcua_browse.list_child_nodes", side_effect=fake_list):
+            vars_, truncated, reason = collect_variable_descendants(MagicMock(), "root")
+
+        assert not truncated
+        assert reason == ""
+        assert [v.node_id for v in vars_] == ["count", "speed", "temp"]
+
+    def test_respects_max_variables(self):
+        children = [
+            OpcUaBrowseEntry(f"V{i}", f"v{i}", "Variable", "Real") for i in range(10)
+        ]
+
+        def fake_list(_client, node_id=None, **_kwargs):
+            if node_id == "root":
+                return children
+            return []
+
+        with patch("s7py.opcua_browse.list_child_nodes", side_effect=fake_list):
+            vars_, truncated, reason = collect_variable_descendants(
+                MagicMock(), "root", max_variables=3
+            )
+
+        assert truncated
+        assert reason == "variables"
+        assert len(vars_) == 3
+
+    def test_empty_root(self):
+        vars_, truncated, reason = collect_variable_descendants(MagicMock(), "")
+        assert vars_ == []
+        assert not truncated
+        assert reason == ""
 
 
 class TestConnectOpcuaClient:

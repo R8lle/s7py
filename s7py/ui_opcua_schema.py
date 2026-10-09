@@ -44,10 +44,13 @@ class _OpcUaEditorRow:
     type_var: tk.StringVar
     node_var: tk.StringVar
     store_var: tk.BooleanVar
+    group_id: str = ""
+    group_label: str = ""
+    group_label_widget: ttk.Label | None = None
 
 
-# Spaltenbreiten (Pixel); Name und NodeId dehnen mit.
-_OPCUA_COL_WIDTHS = (320, 100, 220, 44, 56, 44)
+# Spalten: Name, Typ, NodeId, Browse, SQLite, Gruppe, Loeschen.
+_OPCUA_COL_WIDTHS = (280, 100, 200, 44, 56, 110, 44)
 
 
 def _configure_opcua_table_columns(table: ttk.Frame) -> None:
@@ -57,8 +60,19 @@ def _configure_opcua_table_columns(table: ttk.Frame) -> None:
 
 def _grid_opcua_row(row_idx: int, widgets: list[tk.Widget]) -> None:
     for col, widget in enumerate(widgets):
-        sticky = "ew" if col <= 2 else "w"
+        sticky = "ew" if col in (0, 2, 5) else "w"
         widget.grid(row=row_idx, column=col, sticky=sticky, padx=(0, 8), pady=2)
+
+
+def _short_group_label(group_id: str, fallback: str = "") -> str:
+    if fallback.strip():
+        return fallback.strip()[:40]
+    if not group_id:
+        return ""
+    suggested = suggested_name_from_node_id(group_id, "")
+    if suggested:
+        return suggested[:40]
+    return group_id[-40:] if len(group_id) > 40 else group_id
 
 
 def _relayout_opcua_rows(rows: list[_OpcUaEditorRow]) -> None:
@@ -148,12 +162,114 @@ class OpcUaSchemaMixin:
 
         _configure_opcua_table_columns(scroll_frame)
         bold = ("", 10, "bold")
-        for col, title in enumerate(("Name", "Typ", "NodeId", "", "SQLite", "")):
+        for col, title in enumerate(
+            ("Name", "Typ", "NodeId", "", "SQLite", "Gruppe", "")
+        ):
             ttk.Label(scroll_frame, text=title, font=bold).grid(
                 row=0, column=col, sticky="w", padx=(0, 8), pady=(0, 6)
             )
 
         rows: list[_OpcUaEditorRow] = []
+        focused_row: list[_OpcUaEditorRow | None] = [None]
+
+        def refresh_count_choices() -> None:
+            names = [row.name_var.get().strip() for row in rows if row.name_var.get().strip()]
+            count_combo["values"] = names
+            if count_var.get() not in names and names:
+                count_var.set(names[0])
+
+        def remove_row(row: _OpcUaEditorRow) -> None:
+            if row in rows:
+                for widget in row.widgets:
+                    widget.destroy()
+                rows.remove(row)
+                if focused_row[0] is row:
+                    focused_row[0] = None
+                _relayout_opcua_rows(rows)
+                refresh_count_choices()
+
+        def add_row(
+            *,
+            name: str = "",
+            datatype: str = "Real",
+            node_id: str = "",
+            store: bool = True,
+            group_id: str = "",
+            group_label: str = "",
+        ) -> _OpcUaEditorRow:
+            row_idx = len(rows) + 1
+
+            name_var = tk.StringVar(value=name)
+            type_var = tk.StringVar(value=datatype if datatype in OPCUA_DATATYPES else "Real")
+            node_var = tk.StringVar(value=node_id)
+            store_var = tk.BooleanVar(value=store)
+            label_text = _short_group_label(group_id, group_label) if group_id else ""
+
+            browse_btn = ttk.Button(scroll_frame, text="...", width=3)
+            del_btn = ttk.Button(scroll_frame, text="X", width=3)
+            name_entry = ttk.Entry(scroll_frame, textvariable=name_var, width=40)
+            type_combo = ttk.Combobox(
+                scroll_frame,
+                textvariable=type_var,
+                values=list(OPCUA_DATATYPES),
+                width=10,
+                state="readonly",
+            )
+            node_entry = ttk.Entry(scroll_frame, textvariable=node_var)
+            store_cb = ttk.Checkbutton(scroll_frame, variable=store_var)
+            # ttk.Label folgt dem Dark/Light-Theme (kein helles tk.Label-Rechteck).
+            group_lbl = ttk.Label(
+                scroll_frame,
+                text=label_text or "—",
+                width=14,
+                anchor="w",
+            )
+            if group_id:
+                group_lbl.configure(foreground="#4FC3F7")
+            widgets: list[tk.Widget] = [
+                name_entry,
+                type_combo,
+                node_entry,
+                browse_btn,
+                store_cb,
+                group_lbl,
+                del_btn,
+            ]
+            editor_row = _OpcUaEditorRow(
+                row_idx,
+                widgets,
+                name_var,
+                type_var,
+                node_var,
+                store_var,
+                group_id=group_id,
+                group_label=label_text,
+                group_label_widget=group_lbl,
+            )
+
+            def mark_focus(_event: object = None, r: _OpcUaEditorRow = editor_row) -> None:
+                focused_row[0] = r
+
+            for w in (name_entry, type_combo, node_entry, store_cb, browse_btn, group_lbl):
+                w.bind("<FocusIn>", mark_focus)
+                w.bind("<Button-1>", mark_focus, add="+")
+
+            browse_btn.configure(command=lambda r=editor_row: browse_for_row(r))
+            _grid_opcua_row(row_idx, widgets)
+            rows.append(editor_row)
+            del_btn.configure(command=lambda r=editor_row: remove_row(r))
+            name_var.trace_add("write", lambda *_a: refresh_count_choices())
+            refresh_count_choices()
+            return editor_row
+
+        def apply_group_to_row(row: _OpcUaEditorRow, group_id: str, group_label: str) -> None:
+            row.group_id = group_id
+            row.group_label = _short_group_label(group_id, group_label)
+            if row.group_label_widget is not None:
+                row.group_label_widget.configure(
+                    text=row.group_label or "—",
+                    foreground="#4FC3F7" if group_id else "",
+                )
 
         def browse_for_row(row: _OpcUaEditorRow) -> None:
             endpoint = self._get_opcua_endpoint()
@@ -168,15 +284,70 @@ class OpcUaSchemaMixin:
 
             def on_select(node_id: str, display_name: str, data_type: str = "") -> None:
                 row.node_var.set(node_id)
-                # Immer Pfad inkl. UDT-Feld (z. B. DB1_Motor_Speed).
                 path_hint = (display_name or "").strip().replace(" ", "_")
                 suggested = suggested_name_from_node_id(node_id, path_hint) or path_hint
                 if suggested:
                     row.name_var.set(suggested)
                 if data_type and data_type in OPCUA_DATATYPES:
                     row.type_var.set(data_type)
+                # Einzeluebernahme: keine Gruppe.
+                apply_group_to_row(row, "", "")
 
-            # Gleiche Credentials wie Hauptverbindung (sonst Hang bei Zugriffssteuerung).
+            def on_select_many(
+                items: list[tuple[str, str, str]],
+                group_id: str,
+                group_label: str,
+            ) -> None:
+                existing_nodes = {
+                    r.node_var.get().strip() for r in rows if r.node_var.get().strip()
+                }
+                added = 0
+                skipped = 0
+                reuse_starter = (
+                    not row.node_var.get().strip()
+                    and not row.name_var.get().strip()
+                )
+                for node_id, display_name, data_type in items:
+                    nid = (node_id or "").strip()
+                    if not nid:
+                        continue
+                    if nid in existing_nodes:
+                        skipped += 1
+                        continue
+                    existing_nodes.add(nid)
+                    dtype = data_type if data_type in OPCUA_DATATYPES else "Real"
+                    if reuse_starter:
+                        row.node_var.set(nid)
+                        row.name_var.set(display_name)
+                        row.type_var.set(dtype)
+                        row.store_var.set(True)
+                        apply_group_to_row(row, group_id, group_label)
+                        reuse_starter = False
+                        added += 1
+                        continue
+                    add_row(
+                        name=display_name,
+                        datatype=dtype,
+                        node_id=nid,
+                        store=True,
+                        group_id=group_id,
+                        group_label=group_label,
+                    )
+                    added += 1
+                # Scrollbereich aktualisieren, damit neue Zeilen sichtbar werden.
+                scroll_frame.update_idletasks()
+                canvas.configure(scrollregion=canvas.bbox("all"))
+                canvas.yview_moveto(1.0)
+                msg = f"{added} Variable(n) uebernommen" + (
+                    f", {skipped} Duplikat(e) uebersprungen." if skipped else "."
+                )
+                dialog.after(
+                    50,
+                    lambda m=msg: messagebox.showinfo(
+                        "OPC UA Browse", m, parent=dialog
+                    ),
+                )
+
             self._persist_opcua_credentials_from_ui()
             security = self._get_opcua_security_config()
             if security.has_credentials() and not security.password:
@@ -191,63 +362,10 @@ class OpcUaSchemaMixin:
                 dialog,
                 endpoint,
                 on_select=on_select,
+                on_select_many=on_select_many,
                 security=security,
                 focus_node_id=row.node_var.get().strip(),
             )
-
-        def refresh_count_choices() -> None:
-            names = [row.name_var.get().strip() for row in rows if row.name_var.get().strip()]
-            count_combo["values"] = names
-            if count_var.get() not in names and names:
-                count_var.set(names[0])
-
-        def remove_row(row: _OpcUaEditorRow) -> None:
-            if row in rows:
-                for widget in row.widgets:
-                    widget.destroy()
-                rows.remove(row)
-                _relayout_opcua_rows(rows)
-                refresh_count_choices()
-
-        def add_row(
-            *,
-            name: str = "",
-            datatype: str = "Real",
-            node_id: str = "",
-            store: bool = True,
-        ) -> None:
-            row_idx = len(rows) + 1
-
-            name_var = tk.StringVar(value=name)
-            type_var = tk.StringVar(value=datatype if datatype in OPCUA_DATATYPES else "Real")
-            node_var = tk.StringVar(value=node_id)
-            store_var = tk.BooleanVar(value=store)
-
-            browse_btn = ttk.Button(scroll_frame, text="...", width=3)
-            del_btn = ttk.Button(scroll_frame, text="X", width=3)
-            widgets: list[tk.Widget] = [
-                ttk.Entry(scroll_frame, textvariable=name_var, width=40),
-                ttk.Combobox(
-                    scroll_frame,
-                    textvariable=type_var,
-                    values=list(OPCUA_DATATYPES),
-                    width=10,
-                    state="readonly",
-                ),
-                ttk.Entry(scroll_frame, textvariable=node_var),
-                browse_btn,
-                ttk.Checkbutton(scroll_frame, variable=store_var),
-                del_btn,
-            ]
-            editor_row = _OpcUaEditorRow(
-                row_idx, widgets, name_var, type_var, node_var, store_var
-            )
-            browse_btn.configure(command=lambda r=editor_row: browse_for_row(r))
-            _grid_opcua_row(row_idx, widgets)
-            rows.append(editor_row)
-            del_btn.configure(command=lambda r=editor_row: remove_row(r))
-            name_var.trace_add("write", lambda *_a: refresh_count_choices())
-            refresh_count_choices()
 
         if self._schema.items:
             for item in self._schema.items:
@@ -256,6 +374,8 @@ class OpcUaSchemaMixin:
                     datatype=item.datatype,
                     node_id=item.node_id,
                     store=item.store,
+                    group_id=item.group_id,
+                    group_label=_short_group_label(item.group_id),
                 )
         else:
             add_row(name="Count", datatype="DWord", store=True)
@@ -296,7 +416,37 @@ class OpcUaSchemaMixin:
             count_var.set("")
             count_combo["values"] = []
 
+        def delete_focused_group() -> None:
+            target = focused_row[0]
+            if target is None or not target.group_id:
+                # Fallback: erste Zeile mit Gruppe, falls Fokus unklar.
+                grouped = [r for r in rows if r.group_id]
+                if len({r.group_id for r in grouped}) == 1:
+                    target = grouped[0]
+                else:
+                    messagebox.showinfo(
+                        "OPC UA",
+                        "Bitte zuerst eine Zeile einer Import-Gruppe anklicken "
+                        "(Spalte „Gruppe“ gefuellt).",
+                        parent=dialog,
+                    )
+                    return
+            gid = target.group_id
+            label = target.group_label or gid
+            members = [r for r in rows if r.group_id == gid]
+            if not messagebox.askyesno(
+                "OPC UA",
+                f"Gruppe „{label}“ mit {len(members)} Variable(n) loeschen?",
+                parent=dialog,
+            ):
+                return
+            for row in list(members):
+                remove_row(row)
+
         ttk.Button(row_btn, text="+ Zeile", command=lambda: add_row()).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(row_btn, text="Gruppe loeschen", command=delete_focused_group).pack(
             side=tk.LEFT, padx=(0, 6)
         )
         ttk.Button(row_btn, text="Alle loeschen", command=clear_all_rows).pack(
@@ -322,6 +472,7 @@ class OpcUaSchemaMixin:
                         bytebit="opcua",
                         store=bool(row.store_var.get()),
                         node_id=row.node_var.get().strip(),
+                        group_id=row.group_id.strip(),
                     )
                 )
             return built

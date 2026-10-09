@@ -26,6 +26,24 @@ class TestDbItemNodeId:
         restored = DbItem.from_dict(item.to_dict())
         assert restored.node_id == "ns=2;s=Temperature"
 
+    def test_group_id_roundtrip(self):
+        item = DbItem(
+            name="Speed",
+            datatype="Real",
+            bytebit="opcua",
+            node_id="ns=3;s=Speed",
+            group_id='ns=3;s="DB1"."Motor"',
+        )
+        data = item.to_dict()
+        assert data["group_id"] == 'ns=3;s="DB1"."Motor"'
+        restored = DbItem.from_dict(data)
+        assert restored.group_id == item.group_id
+
+    def test_group_id_omitted_when_empty(self):
+        item = DbItem(name="A", datatype="Int", bytebit="opcua", node_id="i=1")
+        assert "group_id" not in item.to_dict()
+
+
 
 class TestSchemaFromOpcuaManual:
     def test_builds_schema(self):

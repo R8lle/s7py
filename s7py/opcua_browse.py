@@ -165,11 +165,19 @@ def _read_variable_data_type(client: Any, node_id: str) -> str:
     return mapped or str(raw)
 
 
+def is_variable_node_class(node_class: str) -> bool:
+    """True fuer Variable (nicht VariableType)."""
+    name = (node_class or "").strip()
+    if "." in name:
+        name = name.rsplit(".", 1)[-1]
+    return name == "Variable"
+
+
 def _enrich_variable_types(client: Any, entries: list[OpcUaBrowseEntry]) -> list[OpcUaBrowseEntry]:
     """DataType nur fuer Variable-Knoten nachlesen."""
     enriched: list[OpcUaBrowseEntry] = []
     for entry in entries:
-        if entry.node_class != "Variable" or entry.data_type:
+        if not is_variable_node_class(entry.node_class) or entry.data_type:
             enriched.append(entry)
             continue
         try:
@@ -211,11 +219,19 @@ def _merge_entries(entries: list[OpcUaBrowseEntry]) -> list[OpcUaBrowseEntry]:
     return merged
 
 
-def list_child_nodes(client: Any, node_id: str | None = None) -> list[OpcUaBrowseEntry]:
+def list_child_nodes(
+    client: Any,
+    node_id: str | None = None,
+    *,
+    enrich_types: bool = True,
+) -> list[OpcUaBrowseEntry]:
     """Listet die Kinder eines Knotens (Standard: Objects-Ordner i=85).
 
     Enthaelt auch UDT-/Strukturfelder (Siemens: oft unter Variable mit
     HasComponent / HasStructuredComponent).
+
+    ``enrich_types=False``: kein DataType-Nachlesen (wichtig fuer schnellen
+    Unterbaum-Import ueber WAN).
     """
     node = _resolve_browse_node(client, node_id)
     get_desc = getattr(node, "get_children_descriptions", None)
@@ -233,7 +249,9 @@ def list_child_nodes(client: Any, node_id: str | None = None) -> list[OpcUaBrows
         except Exception:
             pass
         entries = _merge_entries(_entries_from_descriptions(refs_list))
-        return _enrich_variable_types(client, entries)
+        if enrich_types:
+            return _enrich_variable_types(client, entries)
+        return entries
 
     entries: list[OpcUaBrowseEntry] = []
     children: list[Any] = []
@@ -274,7 +292,7 @@ def list_child_nodes(client: Any, node_id: str | None = None) -> list[OpcUaBrows
         except Exception:
             node_class = "?"
         data_type = ""
-        if str(node_class) == "Variable":
+        if enrich_types and is_variable_node_class(str(node_class)):
             try:
                 data_type = _read_variable_data_type(client, cid)
             except Exception:
@@ -294,6 +312,75 @@ def list_child_nodes(client: Any, node_id: str | None = None) -> list[OpcUaBrows
 def list_root_nodes(client: Any) -> list[OpcUaBrowseEntry]:
     """Kinder des Root-Ordners (Objects, Types, Views)."""
     return list_child_nodes(client, ROOT_FOLDER_NODEID)
+
+
+# Harte Limits fuer Unterbaum-Import (UI warnt bei Cap).
+MAX_SUBTREE_VARIABLES = 500
+# Schutz vor Endlosbaeumen (z. B. Milo „Turtles“) und zu tiefen UDT-Ketten.
+MAX_SUBTREE_NODES = 1500
+MAX_SUBTREE_DEPTH = 25
+
+
+def collect_variable_descendants(
+    client: Any,
+    root_node_id: str,
+    *,
+    max_variables: int = MAX_SUBTREE_VARIABLES,
+    max_nodes: int = MAX_SUBTREE_NODES,
+    max_depth: int = MAX_SUBTREE_DEPTH,
+) -> tuple[list[OpcUaBrowseEntry], bool, str]:
+    """Sammelt rekursiv alle Variable-Nachfahren unter ``root_node_id``.
+
+    Der Wurzelknoten selbst wird nicht als Ordner geliefert; Variable-Kinder
+    werden aufgenommen. DataTypes werden beim Sammeln nicht nachgelesen
+    (Geschwindigkeit); die UI setzt fehlende Typen auf Real.
+
+    Rueckgabe: ``(variablen, truncated, limit_reason)`` —
+    ``limit_reason`` ist leer oder ``variables`` / ``nodes`` / ``depth``.
+    """
+    root = (root_node_id or "").strip()
+    if not root:
+        return [], False, ""
+
+    found: list[OpcUaBrowseEntry] = []
+    found_ids: set[str] = set()
+    visited: set[str] = set()
+    # (node_id, depth)
+    queue: list[tuple[str, int]] = [(root, 0)]
+    limit_reason = ""
+
+    while queue:
+        current, depth = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        if len(visited) > max_nodes:
+            limit_reason = "nodes"
+            break
+        if depth > max_depth:
+            limit_reason = "depth"
+            continue
+        try:
+            # Ohne Typ-Enrichment — sonst haengt der Import an Demo-/Mass-Servern.
+            children = list_child_nodes(client, current, enrich_types=False)
+        except Exception:
+            children = []
+        for child in children:
+            cid = (child.node_id or "").strip()
+            if not cid:
+                continue
+            if is_variable_node_class(child.node_class):
+                if cid not in found_ids:
+                    found_ids.add(cid)
+                    found.append(child)
+                    if len(found) >= max_variables:
+                        return found, True, "variables"
+                # Variable kann UDT-Felder haben — eine Ebene tiefer browsen.
+                if cid not in visited and depth < max_depth:
+                    queue.append((cid, depth + 1))
+            elif cid not in visited and depth < max_depth:
+                queue.append((cid, depth + 1))
+    return found, bool(limit_reason), limit_reason
 
 
 def disconnect_opcua_client(client: Any) -> None:

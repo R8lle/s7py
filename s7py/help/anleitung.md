@@ -63,14 +63,18 @@ Fenstergrößen und Positionen (Hauptfenster, Variablen, Tabelle) werden beim Sc
 
 *Datei → OPC UA Variablen (manuell)…*
 
-- Name, Typ, NodeId, Aktiv.
-- Browse-Dialog hilft beim Finden von Nodes am Server (gleiche Anmeldung wie die Hauptverbindung).
+- Name, Typ, NodeId, SQLite (einzeln abwählbar), optional Spalte **Gruppe**.
+- Browse-Dialog (`…` in der Zeile): gleiche Anmeldung wie die Hauptverbindung.
+  - **NodeId uebernehmen**: eine Variable in die aktuelle Zeile.
+  - **Unterbaum uebernehmen**: alle Variable-Knoten rekursiv unter dem markierten Ordner/Strukturknoten; erscheinen als Gruppe (gemeinsames Label).
+- **X**: eine Zeile löschen. **Gruppe loeschen**: alle Zeilen derselben Import-Gruppe.
 
 ## Datenbank und Diagramm
 
 - Eine SQLite-Datei pro Messreihe; Pfad in der Bedienleiste.
 - Beim Schemawechsel: bestehende DB migrieren oder neue leere DB anlegen.
 - Diagramm liest aus SQLite (nicht direkt aus dem Live-Puffer); Aktualisierung einstellbar.
+- Kurven: bei wenigen Variablen Checkboxen in der Bedienleiste; ab 6 plotbaren Feldern Button **Kurven …** mit Auswahlliste (Standard: alle aus). Nur aktivierte Kurven werden gezeichnet und in der Legende gezeigt.
 - Tabellenfenster: letzte N Zeilen oder gesamte Tabelle (bei sehr großen DBs Nachfrage).
 - Wartung: alte Zeilen behalten/kürzen, Tabelle leeren, VACUUM.
 

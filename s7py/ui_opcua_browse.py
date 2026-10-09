@@ -9,14 +9,21 @@ from typing import Callable
 
 from s7py.constants import OPCUA_SYNC_WRAPPER_TIMEOUT_S
 from s7py.opcua_browse import (
+    MAX_SUBTREE_DEPTH,
+    MAX_SUBTREE_NODES,
+    MAX_SUBTREE_VARIABLES,
     OBJECTS_FOLDER_NODEID,
     OpcUaBrowseEntry,
+    collect_variable_descendants,
+    is_variable_node_class,
     connect_opcua_client,
     disconnect_opcua_client,
     list_child_nodes,
     list_root_nodes,
+    suggested_name_from_node_id,
 )
 from s7py.opcua_connect import OpcUaSecurityConfig
+from s7py.schema import OPCUA_DATATYPES
 from s7py.ui_flow import center_toplevel_on_parent
 
 _EMPTY_OBJECTS_HINT = (
@@ -47,10 +54,16 @@ def open_opcua_browse_dialog(
     endpoint: str,
     *,
     on_select: Callable[[str, str, str], None],
+    on_select_many: (
+        Callable[[list[tuple[str, str, str]], str, str], None] | None
+    ) = None,
     security: OpcUaSecurityConfig | None = None,
     focus_node_id: str = "",
 ) -> None:
     """Server-Browser oeffnen; ``on_select(node_id, display_name, data_type)`` bei Uebernahme.
+
+    ``on_select_many(items, group_id, group_label)``: Unterbaum — jedes Item ist
+    ``(node_id, display_name, data_type)``.
 
     ``focus_node_id``: vorhandene NodeId — Baum dorthin aufklappen und markieren.
     """
@@ -111,6 +124,7 @@ def open_opcua_browse_dialog(
     node_id_by_iid: dict[str, str | None] = {}
     name_by_iid: dict[str, str] = {}
     type_by_iid: dict[str, str] = {}
+    class_by_iid: dict[str, str] = {}
     iid_counter = 0
     loading = {"connect": False, "reveal": False}
     expanding: set[str] = set()
@@ -150,6 +164,7 @@ def open_opcua_browse_dialog(
             node_id_by_iid[iid] = entry.node_id
             name_by_iid[iid] = entry.display_name
             type_by_iid[iid] = entry.data_type
+            class_by_iid[iid] = entry.node_class
             # Variable nicht als Blatt: Siemens-UDT-Felder als Kinder.
             may_expand = entry.node_class != "Method"
             tree.insert(
@@ -381,6 +396,7 @@ def open_opcua_browse_dialog(
         node_id_by_iid.clear()
         name_by_iid.clear()
         type_by_iid.clear()
+        class_by_iid.clear()
 
         top_entries = root_entries or [
             OpcUaBrowseEntry("Objects", OBJECTS_FOLDER_NODEID, "Object")
@@ -390,6 +406,7 @@ def open_opcua_browse_dialog(
             node_id_by_iid[iid] = entry.node_id
             name_by_iid[iid] = entry.display_name
             type_by_iid[iid] = entry.data_type
+            class_by_iid[iid] = entry.node_class
             is_objects = entry.node_id == OBJECTS_FOLDER_NODEID or entry.display_name == "Objects"
             tree.insert(
                 "",
@@ -472,6 +489,7 @@ def open_opcua_browse_dialog(
         node_id_by_iid.clear()
         name_by_iid.clear()
         type_by_iid.clear()
+        class_by_iid.clear()
         if sec is not None and sec.has_credentials():
             set_status(
                 f"Verbinde als „{sec.username.strip()}“ "
@@ -527,34 +545,172 @@ def open_opcua_browse_dialog(
             name="OpcUaBrowseExpand",
         ).start()
 
-    def apply_selection() -> None:
-        iid = tree.focus()
+    _ROOT_SKIP = {OBJECTS_FOLDER_NODEID, "i=84", "i=86", "i=87"}
+
+    def path_parts_for_iid(iid: str) -> list[str]:
+        parts: list[str] = []
+        cur: str | None = iid
+        while cur:
+            part = name_by_iid.get(cur) or str(tree.item(cur, "text") or "")
+            part = part.strip().replace(" ", "_")
+            if part and part not in {"Objects", "Types", "Views", "Server"}:
+                parts.append(part)
+            cur = tree.parent(cur) or None
+        parts.reverse()
+        return parts
+
+    def _selected_iid() -> str | None:
+        selected = tree.selection()
+        iid = selected[0] if selected else tree.focus()
         if not iid or iid not in node_id_by_iid:
+            return None
+        return iid
+
+    def apply_selection() -> None:
+        iid = _selected_iid()
+        if not iid:
             messagebox.showinfo("OPC UA Browse", "Bitte einen Knoten auswaehlen.", parent=dialog)
             return
         node_id = node_id_by_iid[iid]
-        if not node_id or node_id in {OBJECTS_FOLDER_NODEID, "i=84", "i=86", "i=87"}:
+        if not node_id or node_id in _ROOT_SKIP:
             messagebox.showinfo(
                 "OPC UA Browse",
                 "Bitte einen Variablen-Knoten waehlen, nicht den Ordner.",
                 parent=dialog,
             )
             return
+        node_class = class_by_iid.get(iid, "")
+        if not is_variable_node_class(node_class):
+            messagebox.showinfo(
+                "OPC UA Browse",
+                f"„{name_by_iid.get(iid, node_id)}“ ist kein Variablen-Knoten "
+                f"({node_class or 'Ordner/Objekt'}).\n\n"
+                "Fuer alle Variablen darunter bitte "
+                "„Unterbaum uebernehmen“ verwenden.\n"
+                "„NodeId uebernehmen“ nur fuer einzelne Variable-Blaetter.",
+                parent=dialog,
+            )
+            return
         display = name_by_iid.get(iid, node_id)
-        # Pfadnamen aus dem Baum (ohne Root-Ordner) fuer Variablenname.
-        path_parts: list[str] = []
-        cur: str | None = iid
-        while cur:
-            part = name_by_iid.get(cur) or str(tree.item(cur, "text") or "")
-            part = part.strip().replace(" ", "_")
-            if part and part not in {"Objects", "Types", "Views", "Server"}:
-                path_parts.append(part)
-            cur = tree.parent(cur) or None
-        path_parts.reverse()
+        path_parts = path_parts_for_iid(iid)
         path_name = "_".join(path_parts) if path_parts else display
         on_select(node_id, path_name, type_by_iid.get(iid, ""))
         cleanup()
         dialog.destroy()
+
+    def apply_subtree() -> None:
+        if on_select_many is None:
+            return
+        iid = _selected_iid()
+        if not iid:
+            messagebox.showinfo("OPC UA Browse", "Bitte einen Knoten auswaehlen.", parent=dialog)
+            return
+        root_node_id = node_id_by_iid[iid]
+        if not root_node_id or root_node_id in _ROOT_SKIP:
+            messagebox.showinfo(
+                "OPC UA Browse",
+                "Bitte einen Ordner oder Struktur-Knoten waehlen, nicht Root.",
+                parent=dialog,
+            )
+            return
+        if not client_holder:
+            messagebox.showinfo(
+                "OPC UA Browse",
+                "Bitte zuerst verbinden.",
+                parent=dialog,
+            )
+            return
+
+        group_label = name_by_iid.get(iid, root_node_id)
+        root_path = path_parts_for_iid(iid)
+        set_status(
+            f"Sammle Variablen unter „{group_label}“ … bitte warten "
+            "(kann einige Sekunden dauern)."
+        )
+
+        def worker() -> None:
+            try:
+                # Sammle ohne DataType-Nachlesen (sonst wirkt „haengend“ an Demo-Servern).
+                entries, truncated, limit_reason = collect_variable_descendants(
+                    client_holder[0], root_node_id
+                )
+            except Exception as exc:
+                dialog.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "OPC UA Browse",
+                        f"Unterbaum konnte nicht gelesen werden:\n{exc}",
+                        parent=dialog,
+                    ),
+                )
+                dialog.after(0, lambda: set_status("Fehler beim Sammeln."))
+                return
+
+            items: list[tuple[str, str, str]] = []
+            for entry in entries:
+                leaf = (entry.display_name or "").strip().replace(" ", "_")
+                path_hint = "_".join([*root_path, leaf]) if leaf else "_".join(root_path)
+                name = (
+                    suggested_name_from_node_id(entry.node_id, path_hint)
+                    or path_hint
+                    or entry.node_id
+                )
+                dtype = entry.data_type if entry.data_type in OPCUA_DATATYPES else ""
+                items.append((entry.node_id, name, dtype))
+
+            def _limit_message(count: int, reason: str) -> str:
+                if reason == "variables":
+                    detail = (
+                        f"Maximal {MAX_SUBTREE_VARIABLES} Variablen "
+                        f"(es wurden {count} uebernommen)."
+                    )
+                elif reason == "nodes":
+                    detail = (
+                        f"Maximal {MAX_SUBTREE_NODES} Knoten im Adressraum "
+                        f"durchsucht ({count} Variablen gefunden)."
+                    )
+                elif reason == "depth":
+                    detail = (
+                        f"Maximale Tiefe {MAX_SUBTREE_DEPTH} erreicht "
+                        f"({count} Variablen gefunden)."
+                    )
+                else:
+                    detail = f"Ein Sammel-Limit wurde erreicht ({count} Variablen)."
+                return (
+                    "Unterbaum-Import: Limit erreicht.\n\n"
+                    f"{detail}\n\n"
+                    "Bitte einen kleineren Ordner waehlen oder den Import "
+                    "spaeter ergaenzen."
+                )
+
+            def ui() -> None:
+                if truncated:
+                    messagebox.showwarning(
+                        "OPC UA Browse",
+                        _limit_message(len(items), limit_reason),
+                        parent=dialog,
+                    )
+                    set_status(
+                        f"Limit ({limit_reason or '?'}): {len(items)} Variable(n)."
+                    )
+                if not items:
+                    if not truncated:
+                        messagebox.showinfo(
+                            "OPC UA Browse",
+                            "Unter diesem Knoten wurden keine Variablen gefunden.",
+                            parent=dialog,
+                        )
+                        set_status("Keine Variablen im Unterbaum.")
+                    return
+                on_select_many(items, root_node_id, group_label)
+                cleanup()
+                dialog.destroy()
+
+            dialog.after(0, ui)
+
+        threading.Thread(
+            target=worker, daemon=True, name="OpcUaSubtreeCollect"
+        ).start()
 
     def on_double_click(_event: tk.Event) -> None:
         iid = tree.focus()
@@ -570,7 +726,13 @@ def open_opcua_browse_dialog(
 
     dialog.protocol("WM_DELETE_WINDOW", on_close)
     ttk.Button(btn_row, text="Schliessen", command=on_close).pack(side=tk.RIGHT, padx=(8, 0))
-    ttk.Button(btn_row, text="NodeId uebernehmen", command=apply_selection).pack(side=tk.RIGHT)
+    ttk.Button(btn_row, text="NodeId uebernehmen", command=apply_selection).pack(
+        side=tk.RIGHT, padx=(0, 8)
+    )
+    if on_select_many is not None:
+        ttk.Button(
+            btn_row, text="Unterbaum uebernehmen", command=apply_subtree
+        ).pack(side=tk.RIGHT, padx=(0, 8))
     ttk.Button(top, text="Verbinden", command=on_connect).grid(row=0, column=2, padx=(8, 0))
 
     if endpoint_var.get().strip():
