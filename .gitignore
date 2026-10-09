@@ -33,6 +33,7 @@ SnapDB.db
 *.log
 s7py_db.json
 .s7py_key
+configs/
 
 # Lokale Diagramm-Exports (Messdaten)
 s7py_Diagramm_*.png

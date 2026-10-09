@@ -27,7 +27,7 @@ Aus dem Quellcode wird mit Python 3.11+ gebaut (venv, PyInstaller). Das betrifft
 - **Verbinden / Trennen**: SPS-Sitzung.
 - **Start / Pause**: Hintergrund-Thread für zyklisches Lesen und Schreiben in SQLite.
 - **Meldungen**: Status- und Diagnosetext unten; ausführlicheres Log in `s7py.log`.
-- **Menü Datei**: Variablen-Editor, PNG-Export, Tabellenansicht, Datenbankwartung.
+- **Menü Datei** (von oben): Konfiguration speichern/laden, Variablen-Editor, PNG-Export, Tabellenansicht, Datenbankwartung.
 - **Menü Hilfe**: Schnellhilfe, Bedienungsanleitung, Info und Lizenzen.
 
 Fenstergrößen und Positionen (Hauptfenster, Variablen, Tabelle) werden beim Schließen gemerkt.
@@ -78,14 +78,27 @@ Fenstergrößen und Positionen (Hauptfenster, Variablen, Tabelle) werden beim Sc
 - Tabellenfenster: letzte N Zeilen oder gesamte Tabelle (bei sehr großen DBs Nachfrage).
 - Wartung: alte Zeilen behalten/kürzen, Tabelle leeren, VACUUM.
 
-## Gespeicherte Konfiguration
+## Benannte Konfigurationen
 
-Datei `s7py_db.json` (Entwicklung: Projektordner; gebündelte App: Anwendungsdaten des Benutzers):
+Mehrere Anlagen oder Messaufgaben lassen sich als eigene Profile ablegen und später wieder aufrufen.
+
+1. *Datei → Konfiguration speichern unter…* (ganz oben im Menü): Name vergeben. Gespeichert werden Verbindung (Protokoll, IP/Endpoint, Anmeldung, Rack/Slot/DB), Abfrageintervall, Aufzeichnungsmodus, Auto-Reconnect, SQLite-Pfad sowie **beide** Variablen-Schemas (Snap7 und OPC UA).
+2. *Datei → Konfiguration laden…*: Profil aus der Liste wählen. Die Oberfläche übernimmt alle Werte; optional direkt verbinden und die Aufzeichnung starten.
+3. Der aktive Profilname steht in der Fenstertitelzeile (`[Name]`).
+
+Ablage: Unterordner `configs/` im Anwendungsdatenverzeichnis (Entwicklung: Projektordner `s7py/configs/`; gebündelte App: z. B. `~/Library/Application Support/s7py/configs/` auf macOS). Eine Datei pro Name (`configs/<Name>.json`).
+
+Vor dem Laden die SPS-Verbindung trennen.
+
+## Aktuelle Sitzung (`s7py_db.json`)
+
+Die zuletzt genutzte Gesamtkonfiguration liegt zusätzlich in `s7py_db.json` (gleiche Ordnerhierarchie wie oben, ohne `configs/`):
 
 - letzte Datenbank und SPS-/OPC-UA-Parameter
 - Snap7- und OPC-UA-Schema getrennt
 - Abfrageintervall, Diagramm-Aktualisierung, Auto-Reconnect
 - Fenstergeometrien
+- Name des aktiven Profils (falls gesetzt)
 
 Die Datei gehört nicht ins Repository.
 

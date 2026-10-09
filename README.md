@@ -47,7 +47,7 @@ Tests: `./test.sh` bzw. `python -m pytest`.
 
 `python-snap7` 3.x ist reines Python — keine separate Snap7-DLL nötig.
 
-Lokale Einstellungen: `s7py_db.json` (in `.gitignore`). Vorlage: [`s7py_db.json.example`](s7py_db.json.example).
+Lokale Einstellungen: `s7py_db.json` (in `.gitignore`). Benannte Profile unter `configs/*.json` (Menü *Datei*). Vorlage: [`s7py_db.json.example`](s7py_db.json.example).
 
 ## Installer selbst bauen
 

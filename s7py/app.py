@@ -84,6 +84,7 @@ from s7py.log import COUNT_GAP_QUEUE, LIVE_VALUES_QUEUE, LOG_QUEUE, logger
 from s7py.schema import DbItem
 from s7py.ui_connection import ConnectionMixin
 from s7py.ui_database import DatabaseMixin
+from s7py.ui_named_config import NamedConfigMixin
 from s7py.ui_opcua_schema import OpcUaSchemaMixin
 from s7py.ui_plot import PlotMixin
 from s7py.ui_schema import SchemaImportMixin
@@ -98,6 +99,7 @@ class S7PyApp(
     SchemaImportMixin,
     Snap7SchemaMixin,
     OpcUaSchemaMixin,
+    NamedConfigMixin,
     tk.Tk,
 ):
     """SPS lesen, SQLite schreiben (Thread), Kurven aus DB — alles in einem Fenster."""
@@ -127,6 +129,7 @@ class S7PyApp(
         self._count_gap_hint_shown = False
         self._recording_paused = False
         self._db_table_window: tk.Toplevel | None = None
+        self._start_recording_after_connect = False
         # Vorbelegung des IP-Felds: zuletzt verbundene SPS, sonst Fallback.
         self._initial_plc_ip = load_last_plc_ip() or DEFAULT_PLC_IP
         self.stop_event = threading.Event()
@@ -156,6 +159,7 @@ class S7PyApp(
 
         self._build_ui()
         self._apply_schema_to_ui()
+        self._update_window_title_for_config()
         self._apply_initial_geometry()
         if os.path.isfile(self._db_path):
             self._attach_database(self._db_path, create_if_missing=False, silent=True)
@@ -443,6 +447,15 @@ class S7PyApp(
             else load_plc_transport()
         )
         self._file_menu.delete(0, "end")
+        self._file_menu.add_command(
+            label="Konfiguration speichern unter...",
+            command=self._on_save_named_config,
+        )
+        self._file_menu.add_command(
+            label="Konfiguration laden...",
+            command=self._on_load_named_config,
+        )
+        self._file_menu.add_separator()
         if transport == PLC_TRANSPORT_OPCUA:
             self._file_menu.add_command(
                 label="OPC UA Variablen (manuell)...",

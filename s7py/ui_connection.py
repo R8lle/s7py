@@ -120,6 +120,7 @@ class ConnectionMixin:
             items = self._schema.items
             db_length = self._schema.read_length
         except ValueError as exc:
+            self._start_recording_after_connect = False
             messagebox.showerror("Konfiguration", str(exc))
             return
 
@@ -133,6 +134,7 @@ class ConnectionMixin:
         if self._get_plc_transport() == PLC_TRANSPORT_OPCUA:
             opcua_security = self._get_opcua_security_config()
             if opcua_security.has_credentials() and not opcua_security.password:
+                self._start_recording_after_connect = False
                 messagebox.showerror(
                     "OPC-UA-Verbindung",
                     "Benutzername ohne Passwort — bitte Passwort eintragen.",
@@ -144,6 +146,7 @@ class ConnectionMixin:
                 if not str(getattr(item, "node_id", "") or "").strip()
             ]
             if missing_nodes:
+                self._start_recording_after_connect = False
                 messagebox.showerror(
                     "OPC-UA-Verbindung",
                     "Im OPC-UA-Schema fehlen NodeIds "
@@ -283,6 +286,7 @@ class ConnectionMixin:
             self.status_var.set("Nicht verbunden.")
             self._set_connecting_ui(False)
             self._set_connected_ui(False)
+            self._start_recording_after_connect = False
             return
 
         self._plc_ip = ip
@@ -300,6 +304,7 @@ class ConnectionMixin:
             self.status_var.set("Nicht verbunden.")
             self._set_connecting_ui(False)
             self._set_connected_ui(False)
+            self._start_recording_after_connect = False
             return
 
         if self._get_plc_transport() == PLC_TRANSPORT_OPCUA:
@@ -318,6 +323,9 @@ class ConnectionMixin:
         self._log_connection_details()
         self._set_connecting_ui(False)
         self._set_connected_ui(True)
+        if getattr(self, "_start_recording_after_connect", False):
+            self._start_recording_after_connect = False
+            self.after(0, self._on_start)
 
     def _refresh_status_display(self: S7PyAppProtocol) -> None:
         """Statuszeile inkl. DB-Statistik aktualisieren."""
