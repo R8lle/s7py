@@ -1,8 +1,10 @@
 # OPC UA in TIA Portal — S7-1500 für s7py
 
-Schritt-für-Schritt-Anleitung, um eine **S7-1500** per **OPC UA** mit **s7py** zu verbinden.
+Schritt-für-Schritt-Anleitung, um eine **S7-1500** per **OPC UA** mit **s7py** zu verbinden (anonym / User / Zertifikat).
 
-Gültig für TIA Portal (V17/V18/V19). Menübezeichnungen können je nach Sprache leicht abweichen.
+TIA-Einstellungen Put/Get und OPC UA **pro Portal-Version**: [tia/README.md](tia/README.md) (V16–V21).
+
+Menübezeichnungen können je nach Sprache und TIA-Version leicht abweichen.
 
 ---
 

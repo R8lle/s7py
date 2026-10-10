@@ -24,7 +24,7 @@ Python und Abhängigkeiten sind in den Installern **mit eingebaut**. Sie brauche
 
 Danach im Programm: Protokoll wählen → Verbindungswerte → **Verbinden** → **Start**.
 
-Hilfe im Menü *Hilfe* (Taste **F1** für die Schnellhilfe). OPC UA an S7-1500: [docs/TIA_OPCUA_S7-1500.md](docs/TIA_OPCUA_S7-1500.md).
+Hilfe im Menü *Hilfe* (Taste **F1** für die Schnellhilfe; TIA Put/Get & OPC UA als eigener Eintrag, PDF-Export im Hilfe-Fenster). Versionierte TIA-Notizen: [docs/tia/](docs/tia/README.md). OPC UA mit s7py im Detail: [docs/TIA_OPCUA_S7-1500.md](docs/TIA_OPCUA_S7-1500.md).
 
 ## Entwicklung (Quellcode)
 

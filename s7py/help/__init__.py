@@ -1,7 +1,10 @@
 """Benutzerdokumentation: eine Markdown-Quelle je Dokument, Anzeige im Programm.
 
-``kurzanleitung.md`` (Schnellhilfe) und ``anleitung.md`` (Bedienungsanleitung)
-liegen neben dieser Datei.
+Die Dateien liegen neben diesem Modul:
+
+* ``kurzanleitung.md`` — Schnellhilfe
+* ``anleitung.md`` — Bedienungsanleitung
+* ``tia.md`` — TIA Portal Put/Get und OPC UA
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 DOCUMENTS = {
     "kurzanleitung": "Schnellhilfe",
     "anleitung": "Bedienungsanleitung",
+    "tia": "TIA Portal (Put/Get & OPC UA)",
 }
 
 

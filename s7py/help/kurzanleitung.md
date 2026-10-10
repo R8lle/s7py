@@ -25,7 +25,7 @@ s7py liest Messwerte von einer Siemens-SPS (**Snap7** oder **OPC UA**), speicher
 
 Wenn der Browse-Baum leer bleibt: in TIA unter *OPC UA-Kommunikation → Zugriffssteuerung* **Browse** und **Read** für die Benutzerrolle setzen und laden.
 
-Schritt-für-Schritt für TIA Portal (S7-1500): Dokument `docs/TIA_OPCUA_S7-1500.md` im Projektordner.
+TIA Put/Get und OPC UA: *Hilfe → TIA Portal (Put/Get & OPC UA)* (PDF über *Als PDF speichern…*).
 
 ## Aufzeichnung und Diagramm
 

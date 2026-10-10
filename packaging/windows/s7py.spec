@@ -47,6 +47,7 @@ hiddenimports = [
     "s7py.ui_flow",
     "s7py.ui_snap7_schema",
     "s7py.help",
+    "s7py.help_pdf",
     "sqlite3",
     "tkinter",
     "tkinter.ttk",

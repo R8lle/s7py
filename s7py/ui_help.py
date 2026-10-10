@@ -1,14 +1,14 @@
-"""Hilfe-Fenster: Schnellhilfe und Bedienungsanleitung (Markdown, Tkinter)."""
+"""Hilfe-Fenster: Schnellhilfe, Bedienungsanleitung, TIA (Markdown, Tkinter)."""
 
 from __future__ import annotations
 
 import re
 import tkinter as tk
 import webbrowser
-from tkinter import ttk
+from tkinter import filedialog, messagebox, ttk
 
 from s7py import help as manual
-from s7py.constants import WINDOW_ID_HELP
+from s7py.constants import APP_DIR, WINDOW_ID_HELP
 from s7py.db import load_window_geometry, save_window_geometry
 from s7py.ui_flow import (
     capture_window_geometry,
@@ -315,7 +315,12 @@ class HelpWindow:
         self.btn_manual = ttk.Button(
             top, text="Bedienungsanleitung", command=lambda: self.show_document("anleitung")
         )
-        self.btn_manual.pack(side=tk.LEFT)
+        self.btn_manual.pack(side=tk.LEFT, padx=(0, 4))
+        self.btn_tia = ttk.Button(
+            top, text="TIA Portal", command=lambda: self.show_document("tia")
+        )
+        self.btn_tia.pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(top, text="Als PDF speichern…", command=self._export_pdf).pack(side=tk.LEFT)
 
         split = ttk.Panedwindow(self.window, orient=tk.HORIZONTAL)
         split.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
@@ -388,10 +393,41 @@ class HelpWindow:
             self.toc.insert(tk.END, f"{indent}{heading}")
         self.btn_quick.state(["disabled"] if name == "kurzanleitung" else ["!disabled"])
         self.btn_manual.state(["disabled"] if name == "anleitung" else ["!disabled"])
+        self.btn_tia.state(["disabled"] if name == "tia" else ["!disabled"])
         self.text.see("1.0")
         self.window.deiconify()
         self.window.lift()
         self.window.focus_force()
+
+    def _export_pdf(self) -> None:
+        title = manual.DOCUMENTS.get(self.name, "Hilfe")
+        default_name = f"s7py_{self.name}.pdf"
+        path = filedialog.asksaveasfilename(
+            parent=self.window,
+            title="Hilfe als PDF speichern",
+            initialdir=str(APP_DIR),
+            initialfile=default_name,
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf"), ("Alle Dateien", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            from s7py.help_pdf import export_markdown_pdf
+
+            export_markdown_pdf(manual.source(self.name), path, title=f"s7py – {title}")
+        except Exception as exc:
+            messagebox.showerror(
+                "PDF speichern",
+                f"PDF konnte nicht geschrieben werden:\n{exc}",
+                parent=self.window,
+            )
+            return
+        messagebox.showinfo(
+            "PDF speichern",
+            f"Gespeichert:\n{path}",
+            parent=self.window,
+        )
 
     def _jump(self, _event: object = None) -> None:
         selection = self.toc.curselection()

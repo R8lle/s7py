@@ -411,6 +411,10 @@ class S7PyApp(
             label="Bedienungsanleitung",
             command=lambda: self._open_help("anleitung"),
         )
+        help_menu.add_command(
+            label="TIA Portal (Put/Get & OPC UA)",
+            command=lambda: self._open_help("tia"),
+        )
         help_menu.add_separator()
         help_menu.add_command(
             label="Info und Lizenzen...",

@@ -28,7 +28,7 @@ Aus dem Quellcode wird mit Python 3.11+ gebaut (venv, PyInstaller). Das betrifft
 - **Start / Pause**: Hintergrund-Thread für zyklisches Lesen und Schreiben in SQLite.
 - **Meldungen**: Status- und Diagnosetext unten; ausführlicheres Log in `s7py.log`.
 - **Menü Datei** (von oben): Konfiguration speichern/laden, Variablen-Editor, PNG-Export, Tabellenansicht, Datenbankwartung.
-- **Menü Hilfe**: Schnellhilfe, Bedienungsanleitung, Info und Lizenzen.
+- **Menü Hilfe**: Schnellhilfe, Bedienungsanleitung, TIA Portal (Put/Get & OPC UA), Info und Lizenzen. Im Hilfe-Fenster: aktuelles Dokument **Als PDF speichern…**.
 
 Fenstergrößen und Positionen (Hauptfenster, Variablen, Tabelle) werden beim Schließen gemerkt.
 
@@ -57,7 +57,7 @@ Fenstergrößen und Positionen (Hauptfenster, Variablen, Tabelle) werden beim Sc
 - Endpoint im Format `opc.tcp://host:4840`.
 - Optional Benutzer/Passwort (werden lokal verschlüsselt abgelegt).
 - Bei aktivierter Zugriffssteuerung in TIA: Rolle mit **Browse** und **Read**, danach Hardware und Software laden.
-- Ausführlich: `docs/TIA_OPCUA_S7-1500.md` im Projekt.
+- TIA Put/Get und OPC UA: *Hilfe → TIA Portal (Put/Get & OPC UA)* (auch als PDF). Einzelversionen im Projekt: `docs/tia/`. s7py-OPC-UA-Details: `docs/TIA_OPCUA_S7-1500.md`.
 
 ### Variablen
 
