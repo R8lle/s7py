@@ -37,7 +37,11 @@ def _blocks(markdown: str) -> list[tuple[str, str]]:
             continue
         heading = re.match(r"^(#{1,3})\s+(.*)$", line)
         if heading:
-            blocks.append((f"h{len(heading.group(1))}", _plain(heading.group(2).strip())))
+            level = len(heading.group(1))
+            title = _plain(heading.group(2).strip())
+            if level == 2 and blocks and blocks[-1][0] != "blank":
+                blocks.append(("blank", ""))
+            blocks.append((f"h{level}", title))
             continue
         bullet = re.match(r"^[-*]\s+(.*)$", line)
         if bullet:
@@ -77,7 +81,7 @@ def _to_pdf_string(text: str) -> str:
     return _pdf_escape(encoded.decode("latin-1"))
 
 
-def _wrap_lines(kind: str, text: str, *, chars_body: int = 90, chars_code: int = 95) -> list[tuple[str, str]]:
+def _wrap_lines(kind: str, text: str, *, chars_body: int = 88, chars_code: int = 92) -> list[tuple[str, str]]:
     if kind == "blank":
         return [("blank", "")]
     if kind == "code":
@@ -110,9 +114,9 @@ def _wrap_lines(kind: str, text: str, *, chars_body: int = 90, chars_code: int =
 
 
 _FONT_SIZE = {
-    "h1": 16,
-    "h2": 13,
-    "h3": 11,
+    "h1": 18,
+    "h2": 14,
+    "h3": 12,
     "body": 10,
     "bullet": 10,
     "number": 10,
@@ -120,14 +124,14 @@ _FONT_SIZE = {
     "blank": 10,
 }
 _LINE_GAP = {
-    "h1": 20,
-    "h2": 18,
-    "h3": 15,
+    "h1": 24,
+    "h2": 22,
+    "h3": 16,
     "body": 13,
     "bullet": 13,
     "number": 13,
     "code": 11,
-    "blank": 8,
+    "blank": 10,
 }
 
 
@@ -135,9 +139,9 @@ def export_markdown_pdf(markdown: str, path: str | Path, *, title: str = "s7py H
     """Schreibt den Hilfetext als mehrseitiges A4-PDF (ohne Extra-Abhaengigkeit)."""
     out = Path(path)
     page_w, page_h = 595.28, 841.89  # A4 pt
-    margin = 50.0
+    margin = 52.0
     y_top = page_h - margin
-    y_bottom = margin + 28.0
+    y_bottom = margin + 36.0
 
     drawn: list[tuple[str, str]] = []
     for kind, text in _blocks(markdown):
@@ -147,22 +151,27 @@ def export_markdown_pdf(markdown: str, path: str | Path, *, title: str = "s7py H
     y = y_top
     for kind, text in drawn:
         gap = _LINE_GAP.get(kind, 13)
+        # Vor h2 etwas mehr Luft / ggf. neue Seite bei wenig Platz
+        if kind == "h2" and y < y_top - 2:
+            gap += 6
         if y - gap < y_bottom:
             pages.append([])
             y = y_top
         pages[-1].append((kind, text, y))
         y -= gap
 
+    total_pages = max(1, len(pages))
     objects: list[bytes] = []
 
     def add_obj(payload: bytes) -> int:
         objects.append(payload)
         return len(objects)
 
-    # 1: Catalog, 2: Pages (spaeter), dann Fonts, dann Contents+Page je Seite
     add_obj(b"<< /Type /Catalog /Pages 2 0 R >>")
-    add_obj(b"<< /Type /Pages /Kids [] /Count 0 >>")  # Platzhalter
-    font_helv = add_obj(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+    add_obj(b"<< /Type /Pages /Kids [] /Count 0 >>")
+    font_helv = add_obj(
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+    )
     font_bold = add_obj(
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"
     )
@@ -171,31 +180,61 @@ def export_markdown_pdf(markdown: str, path: str | Path, *, title: str = "s7py H
     )
 
     page_ids: list[int] = []
-    for page_lines in pages:
+    for page_index, page_lines in enumerate(pages, start=1):
         content_parts: list[str] = []
-        # Fusszeile
-        content_parts.append("BT")
-        content_parts.append(f"/F1 8 Tf")
-        content_parts.append(f"1 0 0 1 {margin:.2f} {margin * 0.45:.2f} Tm")
-        content_parts.append(f"({_to_pdf_string(title)}) Tj")
-        content_parts.append("ET")
+
+        # Feiner Kopfstrich
+        content_parts.append("0.85 0.88 0.92 rg")
+        content_parts.append(
+            f"{margin:.2f} {page_h - margin + 10:.2f} {page_w - 2 * margin:.2f} 1.2 re f"
+        )
 
         for kind, text, y_pos in page_lines:
-            if kind == "blank" or not text:
+            if kind == "blank":
+                continue
+            if kind == "h2":
+                # Hellblaues Kapitelband hinter der Ueberschrift
+                band_y = y_pos - 4
+                content_parts.append("0.89 0.93 0.98 rg")
+                content_parts.append(
+                    f"{margin - 4:.2f} {band_y - 3:.2f} {page_w - 2 * margin + 8:.2f} 18 re f"
+                )
+            if not text:
                 continue
             size = _FONT_SIZE.get(kind, 10)
             if kind in ("h1", "h2", "h3"):
                 font = "F2"
+                # Accent-Blau fuer Ueberschriften
+                content_parts.append("0.082 0.396 0.753 rg")
             elif kind == "code":
                 font = "F3"
+                content_parts.append("0.12 0.16 0.20 rg")
             else:
                 font = "F1"
+                content_parts.append("0.12 0.16 0.20 rg")
             x = margin + (12.0 if kind in ("bullet", "number") else 0.0)
             content_parts.append("BT")
             content_parts.append(f"/{font} {size} Tf")
             content_parts.append(f"1 0 0 1 {x:.2f} {y_pos:.2f} Tm")
             content_parts.append(f"({_to_pdf_string(text)}) Tj")
             content_parts.append("ET")
+
+        # Fusszeile: Titel links, Seitenzahl rechts
+        footer_y = margin * 0.55
+        content_parts.append("0.42 0.45 0.50 rg")
+        content_parts.append("BT")
+        content_parts.append("/F1 8 Tf")
+        content_parts.append(f"1 0 0 1 {margin:.2f} {footer_y:.2f} Tm")
+        content_parts.append(f"({_to_pdf_string(title)}) Tj")
+        content_parts.append("ET")
+        page_label = f"Seite {page_index} / {total_pages}"
+        # grobe Rechtsausrichtung: Zeichenbreite ~4.5 pt bei 8 pt Helvetica
+        label_x = page_w - margin - len(page_label) * 4.5
+        content_parts.append("BT")
+        content_parts.append("/F1 8 Tf")
+        content_parts.append(f"1 0 0 1 {label_x:.2f} {footer_y:.2f} Tm")
+        content_parts.append(f"({_to_pdf_string(page_label)}) Tj")
+        content_parts.append("ET")
 
         stream = "\n".join(content_parts).encode("latin-1", errors="replace")
         content_id = add_obj(

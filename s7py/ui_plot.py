@@ -252,15 +252,11 @@ class PlotMixin:
 
         plottable = plottable_numeric_fields(self._schema)
         use_dialog = len(plottable) >= _PLOT_INLINE_CHECKBOX_LIMIT
-        if use_dialog:
-            # Viele Variablen: nichts vorselektieren (sonst Diagramm/Legende voll).
-            defaults: set[str] = set()
-        else:
-            defaults = {
-                name for name in self._schema.plot_fields if name in plottable
-            }
-            if not defaults and plottable:
-                defaults = set(plottable[:2])
+        # Gespeicherte Kurvenauswahl (Profil / s7py_db.json) hat Vorrang.
+        defaults = {name for name in self._schema.plot_fields if name in plottable}
+        if not use_dialog and not defaults and plottable:
+            defaults = set(plottable[:2])
+        # Dialog-Modus: leere plot_fields = bewusst alle aus (nicht Top-2).
 
         for name in plottable:
             self._plot_field_vars[name] = tk.BooleanVar(value=name in defaults)
@@ -383,6 +379,8 @@ class PlotMixin:
         self._sync_dual_axis_layout()
 
     def _on_plot_field_toggle(self: S7PyAppProtocol) -> None:
+        selected = self._get_selected_plot_fields()
+        self._schema.plot_fields = selected
         self._sync_dual_axis_layout()
         self._draw_plot_from_cache()
         self._update_plot_fields_button()

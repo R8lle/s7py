@@ -459,6 +459,14 @@ class S7PyApp(
             label="Konfiguration laden...",
             command=self._on_load_named_config,
         )
+        self._file_menu.add_command(
+            label="Konfiguration exportieren...",
+            command=self._on_export_named_config,
+        )
+        self._file_menu.add_command(
+            label="Konfiguration importieren...",
+            command=self._on_import_named_config,
+        )
         self._file_menu.add_separator()
         if transport == PLC_TRANSPORT_OPCUA:
             self._file_menu.add_command(

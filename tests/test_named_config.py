@@ -95,3 +95,37 @@ def test_rename_and_delete(tmp_path, monkeypatch):
 
     delete_named_config("Neu")
     assert [item[0] for item in list_named_configs()] == ["Andere"]
+
+
+def test_export_import_roundtrip(tmp_path, monkeypatch):
+    from s7py.named_config import (
+        export_config_dict,
+        import_config_file,
+        load_named_config,
+        save_named_config,
+    )
+
+    monkeypatch.setattr("s7py.constants.APP_DIR", tmp_path)
+    save_named_config(
+        "Linie",
+        {
+            "plc_transport": "opcua",
+            "opcua_endpoint": "opc.tcp://1.2.3.4:4840",
+            "plc_structure_opcua": {
+                "plot_fields": ["Temperature", "MotorCurrent"],
+                "items": [],
+            },
+        },
+    )
+    export_path = tmp_path / "share" / "Linie_export.json"
+    payload = load_named_config("Linie")[1]
+    export_config_dict(payload, export_path, name="Linie")
+    assert export_path.is_file()
+
+    name, path = import_config_file(export_path, name="Linie Import")
+    assert name == "Linie Import"
+    assert path.is_file()
+    loaded_name, body = load_named_config("Linie Import")
+    assert loaded_name == "Linie Import"
+    assert body["opcua_endpoint"] == "opc.tcp://1.2.3.4:4840"
+    assert body["plc_structure_opcua"]["plot_fields"] == ["Temperature", "MotorCurrent"]

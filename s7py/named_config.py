@@ -117,3 +117,40 @@ def rename_named_config(old_name: str, new_name: str) -> Path:
     saved = save_named_config(new_safe, body)
     old_path.unlink(missing_ok=True)
     return saved
+
+
+def export_config_dict(config: dict, dest: Path, *, name: str | None = None) -> Path:
+    """Schreibt eine Config-JSON an einen beliebigen Pfad (Export/Teilen)."""
+    if not isinstance(config, dict):
+        raise TypeError("config muss ein dict sein")
+    dest = Path(dest)
+    if dest.suffix.lower() != ".json":
+        dest = dest.with_suffix(".json")
+    label = sanitize_config_name(name or dest.stem)
+    payload = {key: value for key, value in config.items() if key != _META_KEY}
+    payload[_META_KEY] = {
+        "name": label,
+        "saved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "exported": True,
+    }
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return dest
+
+
+def import_config_file(source: Path, *, name: str | None = None) -> tuple[str, Path]:
+    """Importiert eine JSON-Datei nach ``configs/``; Rueckgabe ``(Name, Pfad)``."""
+    source = Path(source)
+    if not source.is_file():
+        raise FileNotFoundError(f"Datei nicht gefunden: {source}")
+    data = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("Ungueltige Konfigurationsdatei.")
+    meta = data.get(_META_KEY) if isinstance(data.get(_META_KEY), dict) else {}
+    label = name or str(meta.get("name") or source.stem).strip() or source.stem
+    body = {key: value for key, value in data.items() if key != _META_KEY}
+    path = save_named_config(label, body)
+    return sanitize_config_name(label), path

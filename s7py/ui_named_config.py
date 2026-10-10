@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from s7py.constants import (
+    APP_DIR,
     DEFAULT_PLC_IP,
+    PLC_TRANSPORT_OPCUA,
     PLC_TRANSPORT_SNAP7,
     RECORDING_MODE_UI_LABELS,
     TRANSPORT_UI_LABELS,
@@ -48,6 +50,8 @@ from s7py.named_config import (
     ACTIVE_CONFIG_NAME_KEY,
     config_path_for_name,
     delete_named_config,
+    export_config_dict,
+    import_config_file,
     list_named_configs,
     load_named_config,
     rename_named_config,
@@ -78,6 +82,8 @@ class NamedConfigMixin:
         save_recording_mode(self._get_recording_mode())
         save_auto_reconnect(bool(self.var_auto_reconnect.get()))
         save_plot_refresh_ms(self._get_plot_refresh_ms())
+        # Aktive Kurvenauswahl in das Schema schreiben (auch leere Liste).
+        self._schema.plot_fields = self._get_selected_plot_fields()
         db_path = resolve_db_path(self.var_db.get().strip() or self._db_path)
         if db_path:
             save_last_db_path(db_path)
@@ -304,7 +310,7 @@ class NamedConfigMixin:
             save_app_config(body)
             self._apply_loaded_app_config()
             self._log(f"Konfiguration geladen: {loaded_name}")
-            self.status_var.set(f"Konfiguration „{loaded_name}“ geladen.")
+            self._set_named_config_status(loaded_name)
         except (OSError, ValueError, TypeError) as exc:
             messagebox.showerror("Konfiguration laden", str(exc), parent=self)
             return
@@ -312,6 +318,107 @@ class NamedConfigMixin:
         connect = messagebox.askyesno(
             "Konfiguration laden",
             f"„{loaded_name}“ geladen.\n\nJetzt verbinden und Aufzeichnung starten?",
+            parent=self,
+        )
+        if connect:
+            self._start_recording_after_connect = True
+            self._on_connect()
+
+    def _set_named_config_status(self: S7PyAppProtocol, loaded_name: str) -> None:
+        transport = load_plc_transport()
+        label = TRANSPORT_UI_LABELS.get(transport, transport)
+        if transport == PLC_TRANSPORT_OPCUA:
+            target = load_opcua_endpoint()
+        else:
+            target = load_last_plc_ip() or DEFAULT_PLC_IP
+        db_path = self.var_db.get().strip() or self._db_path
+        curves = len(self._get_selected_plot_fields())
+        self.status_var.set(
+            f"Konfiguration „{loaded_name}“ geladen — {label}: {target} | "
+            f"DB: {db_path} | Kurven: {curves}"
+        )
+
+    def _on_export_named_config(self: S7PyAppProtocol) -> None:
+        current = self._active_config_display_name() or "s7py_config"
+        path = filedialog.asksaveasfilename(
+            parent=self,
+            title="Konfiguration exportieren",
+            initialdir=str(APP_DIR),
+            initialfile=f"{current}.json",
+            defaultextension=".json",
+            filetypes=[("JSON-Konfiguration", "*.json"), ("Alle Dateien", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            config = self._flush_app_config_from_ui()
+            if current:
+                config[ACTIVE_CONFIG_NAME_KEY] = current
+            saved = export_config_dict(config, Path(path), name=Path(path).stem)
+            self._log(f"Konfiguration exportiert: {saved.name}")
+            messagebox.showinfo(
+                "Konfiguration exportieren",
+                f"Exportiert nach:\n{saved}",
+                parent=self,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            messagebox.showerror("Konfiguration exportieren", str(exc), parent=self)
+
+    def _on_import_named_config(self: S7PyAppProtocol) -> None:
+        if self._session_active or self._connecting or self._reconnecting:
+            messagebox.showwarning(
+                "Konfiguration importieren",
+                "Bitte zuerst die SPS-Verbindung trennen.",
+                parent=self,
+            )
+            return
+        path = filedialog.askopenfilename(
+            parent=self,
+            title="Konfiguration importieren",
+            initialdir=str(APP_DIR),
+            filetypes=[("JSON-Konfiguration", "*.json"), ("Alle Dateien", "*.*")],
+        )
+        if not path:
+            return
+        suggested = Path(path).stem
+        raw = simpledialog.askstring(
+            "Konfiguration importieren",
+            "Name unter dem die Konfiguration abgelegt wird:",
+            parent=self,
+            initialvalue=suggested,
+        )
+        if raw is None:
+            return
+        try:
+            name = sanitize_config_name(raw)
+            dest = config_path_for_name(name)
+            if dest.is_file():
+                if not messagebox.askyesno(
+                    "Konfiguration importieren",
+                    f"„{name}“ existiert bereits.\nÜberschreiben?",
+                    parent=self,
+                ):
+                    return
+            imported_name, saved = import_config_file(Path(path), name=name)
+            self._log(f"Konfiguration importiert: {saved.name}")
+            apply = messagebox.askyesno(
+                "Konfiguration importieren",
+                f"„{imported_name}“ nach configs/ importiert.\n\nJetzt laden und anwenden?",
+                parent=self,
+            )
+            if not apply:
+                return
+            _, body = load_named_config(imported_name)
+            save_app_config(body)
+            self._apply_loaded_app_config()
+            self._set_named_config_status(imported_name)
+        except (OSError, TypeError, ValueError) as exc:
+            messagebox.showerror("Konfiguration importieren", str(exc), parent=self)
+            return
+
+        connect = messagebox.askyesno(
+            "Konfiguration importieren",
+            f"„{imported_name}“ geladen.\n\nJetzt verbinden und Aufzeichnung starten?",
             parent=self,
         )
         if connect:
