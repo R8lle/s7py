@@ -12,6 +12,7 @@ block_cipher = None
 
 snap7_datas, snap7_binaries, snap7_hiddenimports = collect_all("snap7")
 mpl_datas, mpl_binaries, mpl_hiddenimports = collect_all("matplotlib")
+pil_datas, pil_binaries, pil_hiddenimports = collect_all("PIL")
 
 hiddenimports = [
     "s7py",
@@ -55,14 +56,19 @@ hiddenimports = [
     "tkinter.messagebox",
     "tkinter.scrolledtext",
     "tkinter.simpledialog",
-] + snap7_hiddenimports + mpl_hiddenimports
+    "PIL",
+    "PIL.Image",
+    "PIL.ImageTk",
+    "PIL._tkinter_finder",
+] + snap7_hiddenimports + mpl_hiddenimports + pil_hiddenimports
 
 a = Analysis(
     [str(ROOT / "s7py.py")],
     pathex=[str(ROOT)],
-    binaries=snap7_binaries + mpl_binaries,
+    binaries=snap7_binaries + mpl_binaries + pil_binaries,
     datas=snap7_datas
     + mpl_datas
+    + pil_datas
     + [
         (str(ROOT / "LICENSE"), "."),
         (str(ROOT / "LICENSE_THIRD_PARTY.txt"), "."),

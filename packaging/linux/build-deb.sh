@@ -87,8 +87,8 @@ Priority: optional
 Architecture: ${DEB_ARCH}
 Installed-Size: ${INSTALLED_SIZE}
 Maintainer: s7py <noreply@example.com>
-Depends: libgl1 | libgl1-mesa-glx, libxkbcommon0, libfontconfig1, libx11-6, libxext6, libxrender1
-Recommends: python3-tk
+Depends: libgl1 | libgl1-mesa-glx, libxkbcommon0, libfontconfig1, libx11-6, libxext6, libxrender1, libxft2, libxss1
+Recommends: python3-tk, libtk8.6
 Description: SPS-Messwerte lesen, SQLite speichern, Live-Diagramm
  s7py liest Prozesswerte einer Siemens-SPS (Snap7 oder OPC UA),
  speichert sie lokal in SQLite und zeigt ein Live-Diagramm.

@@ -78,8 +78,16 @@ class PlotMixin:
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        self.mpl_toolbar = _StableNavigationToolbar(self.canvas, plot_frame)
-        self.mpl_toolbar.update()
+        try:
+            self.mpl_toolbar = _StableNavigationToolbar(self.canvas, plot_frame)
+            self.mpl_toolbar.update()
+        except Exception as exc:  # noqa: BLE001 - ImageTk/PyInstaller: App trotzdem starten
+            self.mpl_toolbar = None
+            from s7py.log import log_msg
+
+            log_msg(
+                f"Matplotlib-Toolbar nicht verfuegbar ({exc}); Diagramm ohne Zoom-Leiste."
+            )
         self._plot_lines = {}
 
     def _clear_plot_display(self: S7PyAppProtocol) -> None:

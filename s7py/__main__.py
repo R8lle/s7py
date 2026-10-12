@@ -29,9 +29,24 @@ def main(argv: list[str] | None = None) -> None:
 
     matplotlib.use("TkAgg")
 
-    from s7py.app import S7PyApp
+    try:
+        from s7py.app import S7PyApp
 
-    S7PyApp().mainloop()
+        S7PyApp().mainloop()
+    except Exception as exc:  # noqa: BLE001 - Startfehler sichtbar machen
+        import traceback
+
+        msg = f"s7py Start fehlgeschlagen: {exc}\n{traceback.format_exc()}"
+        print(msg, file=sys.stderr)
+        try:
+            from s7py.constants import APP_DIR
+
+            crash = APP_DIR / "crash.log"
+            crash.write_text(msg, encoding="utf-8")
+            print(f"Details: {crash}", file=sys.stderr)
+        except Exception:
+            pass
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
