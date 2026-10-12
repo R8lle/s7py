@@ -1,4 +1,4 @@
-# Linux-Tarball (PyInstaller-Ordner). Nur manuell:
+# Linux-Paket: Tarball + .deb (Ubuntu/Debian). Nur manuell:
 # Actions → „Linux-Paket“ → Run workflow
 # oder: gh workflow run package-linux.yml
 name: Linux-Paket
@@ -21,10 +21,10 @@ jobs:
           python-version: "3.13"
           cache: pip
 
-      - name: System libraries (Tk/matplotlib)
+      - name: System libraries (Tk/matplotlib + dpkg)
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk libgl1 libxkbcommon0 libfontconfig1
+          sudo apt-get install -y python3-tk libgl1 libxkbcommon0 libfontconfig1 dpkg-dev
 
       - name: Install
         run: python -m pip install -e ".[dev,opcua,build]"
@@ -56,15 +56,21 @@ jobs:
           OUT="dist/s7py-${VERSION}-linux-${ARCH}.tar.gz"
           tar -C dist -czf "$OUT" s7py
           ls -la "$OUT"
-          echo "TARBALL=$OUT" >> "$GITHUB_ENV"
+
+      - name: Build .deb
+        run: |
+          chmod +x packaging/linux/build-deb.sh
+          ./packaging/linux/build-deb.sh
+          ls -la dist/*.deb
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: s7py-linux-tarball
+          name: s7py-linux-packages
           path: |
             dist/s7py-*-linux-*.tar.gz
+            dist/s7py_*.deb
             selftest.txt
           retention-days: 30
 
@@ -76,11 +82,27 @@ jobs:
           VERSION="$(python -c 'import s7py; print(s7py.__version__)')"
           TAG="v${VERSION}-linux"
           TARBALL="$(ls dist/s7py-*-linux-*.tar.gz | head -1)"
-          if [[ -z "$TARBALL" ]]; then echo "Tarball fehlt"; exit 1; fi
+          DEB="$(ls dist/s7py_*.deb | head -1)"
+          if [[ -z "$TARBALL" || -z "$DEB" ]]; then echo "Paket fehlt"; exit 1; fi
+          NOTES="$(cat <<EOF
+          Linux-Pakete fuer Ubuntu/Debian.
+
+          **Empfohlen (.deb):**
+          \`\`\`bash
+          sudo apt install ./s7py_${VERSION}_amd64.deb
+          s7py
+          \`\`\`
+          Deinstallieren: \`sudo apt remove s7py\`
+
+          **Portabel (tar.gz):** entpacken und \`./s7py\` starten.
+
+          Grafische Oberflaeche noetig (Display).
+          EOF
+          )"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$TARBALL" --clobber
+            gh release upload "$TAG" "$TARBALL" "$DEB" --clobber
           else
-            gh release create "$TAG" "$TARBALL" \
+            gh release create "$TAG" "$TARBALL" "$DEB" \
               --title "s7py ${VERSION} Linux" \
-              --notes "Linux-Tarball (PyInstaller). Entpacken und ./s7py starten. Tk/Display noetig."
+              --notes "$NOTES"
           fi

@@ -4,7 +4,7 @@ s7py liest Messwerte von einer Siemens-SPS (**Snap7** oder **OPC UA**), speicher
 
 ## Start
 
-1. Programm starten (Windows: nach Setup; macOS: App aus dem DMG bzw. Programme).
+1. Programm starten (Windows: nach Setup; macOS: App aus dem DMG; Ubuntu: nach `sudo apt install ./s7py_*.deb` den Befehl `s7py`).
 2. **Protokoll** wählen: *Snap7* oder *OPC UA*.
 3. Verbindungswerte eintragen (IP bzw. Endpoint, bei Bedarf Benutzer/Passwort).
 4. **Verbinden** → **Start** für die Aufzeichnung.

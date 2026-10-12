@@ -17,10 +17,20 @@ Python und Abhängigkeiten sind in den Installern **mit eingebaut**. Sie brauche
 |--------|--------|--------|
 | **Windows** | `s7py-*-setup.exe` | [GitHub Releases](https://github.com/R8lle/s7py/releases) (`v*-windows`) |
 | **macOS** | `s7py-*-macos.dmg` | [GitHub Releases](https://github.com/R8lle/s7py/releases) (`v*-macos`) |
+| **Linux (Ubuntu/Debian)** | `s7py_*_amd64.deb` | [GitHub Releases](https://github.com/R8lle/s7py/releases) (`v*-linux`) |
 
 **Windows:** Setup doppelklicken → Assistent folgen (optional Desktop-Verknüpfung).
 
 **macOS:** DMG öffnen → `s7py.app` nach **Programme** ziehen → starten. Beim ersten Start ggf. unter *Systemeinstellungen → Datenschutz & Sicherheit* erlauben (unsignierte Builds).
+
+**Linux (Ubuntu):** `.deb` herunterladen, dann:
+
+```bash
+sudo apt install ./s7py_*_amd64.deb
+s7py
+```
+
+Deinstallieren: `sudo apt remove s7py`. Alternativ portables `*.tar.gz` entpacken und `./s7py` starten.
 
 Danach im Programm: Protokoll wählen → Verbindungswerte → **Verbinden** → **Start**.
 
@@ -56,7 +66,7 @@ Lokale Einstellungen: `s7py_db.json` (in `.gitignore`). Benannte Profile unter `
 | Windows-Setup | `build-windows.bat` oder Actions → **Windows-Paket** | `s7py-<version>-setup.exe` |
 | macOS-DMG (ARM) | Actions → **macOS-Paket** | `s7py-<version>-macos-arm64.dmg` |
 | macOS-DMG (Intel) | lokal `./build-macos-pyinstaller.sh` auf Intel-Mac | `s7py-<version>-macos-x86_64.dmg` |
-| Linux-Tarball | Actions → **Linux-Paket** | `s7py-<version>-linux-x86_64.tar.gz` |
+| Linux .deb + Tarball | Actions → **Linux-Paket** | `s7py_<version>_amd64.deb`, `s7py-<version>-linux-x86_64.tar.gz` |
 | Portable ZIP | `./package-portable.sh` / `package-portable.bat` | Quellarchiv (Python nötig) |
 
 Build-Kennung: `python -m s7py.about --stamp`.

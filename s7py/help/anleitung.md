@@ -12,6 +12,7 @@ Python und Bibliotheken sind **im Paket enthalten** — nichts separat installie
 |--------|--------|----------|
 | Windows | `s7py-*-setup.exe` | Doppelklick, Assistent folgen |
 | macOS | `s7py-*-macos.dmg` | Öffnen, App nach Programme ziehen |
+| Linux (Ubuntu) | `s7py_*_amd64.deb` | `sudo apt install ./s7py_*_amd64.deb`, dann `s7py` |
 
 Download: [GitHub Releases](https://github.com/R8lle/s7py/releases).
 

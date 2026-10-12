@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=s7py
+GenericName=SPS Messdaten
+Comment=Siemens SPS lesen, SQLite speichern, Live-Diagramm
+Exec=s7py
+Icon=s7py
+Terminal=false
+Categories=Utility;Science;Engineering;
+Keywords=SPS;PLC;Snap7;OPC UA;SQLite;
+StartupNotify=true
