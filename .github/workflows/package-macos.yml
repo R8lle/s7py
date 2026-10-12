@@ -1,6 +1,15 @@
 # macOS-DMG (Apple Silicon / ARM). Intel bei Bedarf lokal via ./build-macos-pyinstaller.sh.
 # Nur manuell: Actions → „macOS-Paket“ → Run workflow
 # oder: gh workflow run package-macos.yml
+#
+# Secrets (Repo → Settings → Secrets → Actions) fuer signierte/notarisierte Builds:
+#   MACOS_CERTIFICATE          Base64 des Developer-ID-.p12
+#   MACOS_CERTIFICATE_PASSWORD Passwort des .p12
+#   MACOS_CODESIGN_IDENTITY    optional, Default: Developer ID Application: Ralf Kauschus (Z2FRLAU83M)
+#   APPLE_API_KEY              Inhalt der AuthKey_XXXXXX.p8 (App Store Connect API)
+#   APPLE_API_KEY_ID           Key-ID
+#   APPLE_API_ISSUER           Issuer-UUID
+# Ohne Secrets: unsignierter Build (wie bisher).
 name: macOS-Paket
 
 on:
@@ -12,8 +21,11 @@ permissions:
 jobs:
   build:
     runs-on: macos-14
-    # Teurer Runner: bei Hang/Fehler frueh abbrechen.
-    timeout-minutes: 20
+    # Notarisierung bei Apple kann einige Minuten dauern.
+    timeout-minutes: 45
+    env:
+      # true/false ohne Secret-Inhalt (Secrets nicht direkt in if: nutzen)
+      SIGNING_ENABLED: ${{ secrets.MACOS_CERTIFICATE != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -42,11 +54,55 @@ jobs:
             iconutil -c icns "$ICONSET" -o assets/s7py.icns
           fi
 
-      - name: PyInstaller + DMG
+      - name: Import Developer ID certificate
+        if: env.SIGNING_ENABLED == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="${RUNNER_TEMP}/build_certificate.p12"
+          KEYCHAIN_PATH="${RUNNER_TEMP}/s7py-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: PyInstaller
         timeout-minutes: 12
         run: |
           pyinstaller --noconfirm --clean s7py-macos.spec
           xattr -cr dist/s7py.app || true
+
+      - name: Sign and notarize app
+        if: env.SIGNING_ENABLED == 'true'
+        timeout-minutes: 20
+        env:
+          S7PY_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          S7PY_NOTARY_KEY: ${{ secrets.APPLE_API_KEY }}
+          S7PY_NOTARY_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          S7PY_NOTARY_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          export S7PY_CODESIGN_IDENTITY="${S7PY_CODESIGN_IDENTITY:-Developer ID Application: Ralf Kauschus (Z2FRLAU83M)}"
+          if [[ -z "${S7PY_NOTARY_KEY:-}" || -z "${S7PY_NOTARY_KEY_ID:-}" || -z "${S7PY_NOTARY_ISSUER:-}" ]]; then
+            echo "MACOS_CERTIFICATE gesetzt, aber APPLE_API_KEY / KEY_ID / ISSUER fehlen." >&2
+            exit 1
+          fi
+          bash packaging/macos/sign-and-notarize.sh dist/s7py.app
+
+      - name: Build DMG
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
           VERSION="$(python -c 'import s7py; print(s7py.__version__)')"
           ARCH="$(uname -m)"
           STAGE=dist/dmg-stage
@@ -57,7 +113,33 @@ jobs:
           ln -s /Applications "$STAGE/Applications"
           hdiutil create -volname "s7py ${VERSION}" -srcfolder "$STAGE" -ov -format UDZO "$OUT"
           rm -rf "$STAGE"
+          echo "DMG_OUT=$OUT" >> "$GITHUB_ENV"
           ls -la dist/*.dmg
+
+      - name: Sign and notarize DMG
+        if: env.SIGNING_ENABLED == 'true'
+        timeout-minutes: 20
+        env:
+          S7PY_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          S7PY_NOTARY_KEY: ${{ secrets.APPLE_API_KEY }}
+          S7PY_NOTARY_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          S7PY_NOTARY_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          IDENTITY="${S7PY_CODESIGN_IDENTITY:-Developer ID Application: Ralf Kauschus (Z2FRLAU83M)}"
+          codesign --force --sign "$IDENTITY" --timestamp "$DMG_OUT"
+          KEY_FILE="$(mktemp "${RUNNER_TEMP}/s7py-notary-XXXXXX.p8")"
+          printf '%s' "$S7PY_NOTARY_KEY" > "$KEY_FILE"
+          xcrun notarytool submit "$DMG_OUT" \
+            --key "$KEY_FILE" \
+            --key-id "$S7PY_NOTARY_KEY_ID" \
+            --issuer "$S7PY_NOTARY_ISSUER" \
+            --wait
+          rm -f "$KEY_FILE"
+          xcrun stapler staple "$DMG_OUT"
+          xcrun stapler validate "$DMG_OUT"
+          codesign --verify --verbose=2 "$DMG_OUT"
+          echo "DMG Signatur + Notary + Staple OK."
 
       - name: Self-test of the packaged app
         timeout-minutes: 2
@@ -105,12 +187,17 @@ jobs:
           TAG="v${VERSION}-macos"
           DMG="$(ls dist/s7py-*-macos-*.dmg | head -1)"
           if [[ -z "$DMG" ]]; then echo "DMG fehlt"; exit 1; fi
-          NOTES="macOS-DMG (Apple Silicon / arm64). DMG oeffnen, App nach Programme ziehen, starten.
+          NOTES="macOS-DMG (Apple Silicon / arm64), Developer-ID signiert und notarisert wenn Repo-Secrets gesetzt.
           Intel: lokal mit ./build-macos-pyinstaller.sh auf einem Intel-Mac bauen."
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" >/dev/null 2>/dev/null; then
             gh release upload "$TAG" "$DMG" --clobber
           else
             gh release create "$TAG" "$DMG" \
               --title "s7py ${VERSION} macOS" \
               --notes "$NOTES"
           fi
+
+      - name: Cleanup keychain
+        if: always() && env.KEYCHAIN_PATH != ''
+        run: |
+          security delete-keychain "${KEYCHAIN_PATH}" 2>/dev/null || true

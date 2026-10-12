@@ -21,7 +21,7 @@ Python und Abhängigkeiten sind in den Installern **mit eingebaut**. Sie brauche
 
 **Windows:** Setup doppelklicken → Assistent folgen (optional Desktop-Verknüpfung).
 
-**macOS:** DMG öffnen → `s7py.app` nach **Programme** ziehen → starten. Beim ersten Start ggf. unter *Systemeinstellungen → Datenschutz & Sicherheit* erlauben (unsignierte Builds).
+**macOS:** DMG öffnen → `s7py.app` nach **Programme** ziehen → starten. Signierte/notarisierte ARM-Builds aus Actions brauchen keine Gatekeeper-Ausnahme; unsignierte Builds ggf. unter *Datenschutz & Sicherheit* erlauben.
 
 **Linux (Ubuntu):** `.deb` herunterladen, dann:
 
@@ -64,7 +64,7 @@ Lokale Einstellungen: `s7py_db.json` (in `.gitignore`). Benannte Profile unter `
 | Ziel | Befehl / Aktion | Ergebnis |
 |------|-----------------|----------|
 | Windows-Setup | `build-windows.bat` oder Actions → **Windows-Paket** | `s7py-<version>-setup.exe` |
-| macOS-DMG (ARM) | Actions → **macOS-Paket** | `s7py-<version>-macos-arm64.dmg` |
+| macOS-DMG (ARM) | Actions → **macOS-Paket** (Secrets: `MACOS_CERTIFICATE*`, `APPLE_API_*`) | `s7py-<version>-macos-arm64.dmg` |
 | macOS-DMG (Intel) | lokal `./build-macos-pyinstaller.sh` auf Intel-Mac | `s7py-<version>-macos-x86_64.dmg` |
 | Linux .deb + Tarball | Actions → **Linux-Paket** | `s7py_<version>_amd64.deb`, `s7py-<version>-linux-x86_64.tar.gz` |
 | Portable ZIP | `./package-portable.sh` / `package-portable.bat` | Quellarchiv (Python nötig) |
